@@ -1,0 +1,7 @@
+@import "tailwindcss";
+@layer base {
+  body {
+    font-family: 'Playfair Display', serif;
+  }
+}
+.font-playfair { font-family: 'Playfair Display', serif; }
