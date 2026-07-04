@@ -13,7 +13,7 @@ export default function Langganan() {
   // State UI Feedback
   const [error, setError] = useState('');
 
-  // Mengambil data jadwal transaksi berulang beserta relasi nama kategori
+  // Mengambil data jadwal transaksi berulang beserta relasi nama kategori dan nama akun
   const fetchSchedules = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -22,7 +22,8 @@ export default function Langganan() {
         .from('recurring_schedules')
         .select(`
           id, amount, type, description, frequency, next_run_date, is_active,
-          categories (name, color_code)
+          categories (name, color_code),
+          accounts (name)
         `)
         .order('next_run_date', { ascending: true });
 
@@ -139,7 +140,7 @@ export default function Langganan() {
                       {sched.description || 'Tanpa catatan khusus'}
                     </p>
 
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-slate-400">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs font-medium text-slate-400 mt-1">
                       <span className="flex items-center gap-1">
                         <Calendar size={14} />
                         Jatuh tempo: {new Date(sched.next_run_date).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}
@@ -149,6 +150,11 @@ export default function Langganan() {
                           ({daysLeftStr})
                         </span>
                       )}
+                      
+                      {/* TAMPILAN SUMBER DOMPET / AKUN */}
+                      <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[11px] font-semibold border border-slate-200">
+                        {sched.type === 'income' ? 'Kredit ke:' : 'Debet via:'} {sched.accounts?.name || 'Akun Utama'}
+                      </span>
                     </div>
                   </div>
 

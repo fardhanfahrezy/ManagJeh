@@ -1,46 +1,66 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { getLivePrices } from '../lib/priceService';
 import { useAuth } from '../contexts/AuthContext';
-import { Wallet, TrendingUp, TrendingDown, Loader2, AlertTriangle } from 'lucide-react';
 import { financialEvents } from '../lib/events';
 import { 
-  AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  LineChart, Line
-} from 'recharts';
+  Wallet, Activity, CreditCard, Coins, Landmark, Sparkles, AlertCircle, Loader2 
+} from 'lucide-react';
 
 export default function Dashboard() {
   const { user } = useAuth();
-  
-  const [summary, setSummary] = useState({ total_balance: 0, monthly_income: 0, monthly_expense: 0 });
-  const [currentMonthTransactions, setCurrentMonthTransactions] = useState([]);
-  const [netWorthData, setNetWorthData] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // State Finansial Makro
+  const [netWorth, setNetWorth] = useState(0);
+  const [assets, setAssets] = useState({ liquid: 0, volatile: 0 });
+  const [liabilities, setLiabilities] = useState(0);
+  
+  // State Distribusi Mikro & AI
+  const [accounts, setAccounts] = useState([]);
+  const [aiInsights, setAiInsights] = useState([]);
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
+
     try {
-      // 1. Fetch Metrik Utama
-      const { data: summaryData } = await supabase.rpc('get_financial_summary', { user_id_param: user.id });
-      if (summaryData) setSummary(summaryData);
+      // Fetch Paralel Skala Penuh: Market Price, Akun, dan Analisis AI RPC
+      const [marketPrices, { data: accountsData }, { data: insightsData }] = await Promise.all([
+        getLivePrices(),
+        supabase.from('accounts').select('*').order('type', { ascending: true }),
+        supabase.rpc('get_budget_predictive_analysis', { user_id_param: user.id })
+      ]);
 
-      // 2. Fetch Net Worth (Akumulasi per bulan dari backend)
-      const { data: nwData } = await supabase.rpc('get_monthly_net_worth', { user_id_param: user.id });
-      if (nwData) setNetWorthData(nwData);
+      // 1. Kalkulasi Aset & Liabilitas
+      let liquidIDR = 0;
+      let volatileIDR = 0;
+      let totalDebt = 0;
 
-      // 3. Fetch Transaksi & Relasi Kategori (Termasuk budget_limit baru)
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
+      if (accountsData) {
+        setAccounts(accountsData); // Simpan untuk UI Distribusi Akun
+        
+        accountsData.forEach(acc => {
+          if (acc.type === 'debt') {
+            totalDebt += Math.abs(Number(acc.balance));
+          } else {
+            liquidIDR += Number(acc.balance);
+            if (acc.asset_ticker !== 'IDR' && acc.asset_quantity) {
+              const livePrice = marketPrices[acc.asset_ticker] || 0;
+              volatileIDR += Number(acc.asset_quantity) * livePrice;
+            }
+          }
+        });
+      }
 
-      const { data: txData } = await supabase
-        .from('transactions')
-        .select(`id, amount, type, date, categories(name, color_code, budget_limit)`)
-        .gte('date', startOfMonth.toISOString())
-        .order('date', { ascending: true });
-      
-      if (txData) setCurrentMonthTransactions(txData);
+      setAssets({ liquid: liquidIDR, volatile: volatileIDR });
+      setLiabilities(totalDebt);
+      setNetWorth((liquidIDR + volatileIDR) - totalDebt);
+
+      // 2. Simpan Data AI Insights
+      if (insightsData) setAiInsights(insightsData);
+
     } catch (error) {
-      console.error(error.message);
+      console.error('Kegagalan agregasi data dasbor:', error.message);
     } finally {
       setLoading(false);
     }
@@ -48,165 +68,151 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchDashboardData();
+    const unsub = financialEvents.subscribe('data_mutated', fetchDashboardData);
+    
+    // Keyboard Shortcut 'N' untuk Transaksi Baru
+    const handleKeyPress = (e) => {
+      if (e.key.toLowerCase() === 'n' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        window.location.href = '/transaksi';
+      }
+    };
+    window.addEventListener('keydown', handleKeyPress);
 
-    // Berlangganan ke event mutasi data global
-    const unsubscribe = financialEvents.subscribe('data_mutated', () => {
-      fetchDashboardData(); // Perbarui grafik hanya jika ada data yang berubah
-    });
-
-    // Putus langganan saat komponen mati untuk mencegah pemborosan RAM
-    return () => unsubscribe();
+    return () => {
+      unsub();
+      window.removeEventListener('keydown', handleKeyPress);
+    };
   }, [fetchDashboardData]);
 
-  const formatRupiah = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(num);
+  // Utilitas Pemformatan
+  const formatIDR = (num) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(num);
 
-  // Kalkulasi Anggaran (Budgeting Progress)
-  const budgetProgress = useMemo(() => {
-    const expenses = currentMonthTransactions.filter(tx => tx.type === 'expense' && tx.categories?.budget_limit > 0);
-    const grouped = expenses.reduce((acc, tx) => {
-      const catName = tx.categories.name;
-      if (!acc[catName]) {
-        acc[catName] = { 
-          name: catName, 
-          spent: 0, 
-          limit: tx.categories.budget_limit,
-          color: tx.categories.color_code
-        };
-      }
-      acc[catName].spent += Number(tx.amount);
-      return acc;
-    }, {});
-
-    return Object.values(grouped).map(cat => ({
-      ...cat,
-      percentage: Math.min((cat.spent / cat.limit) * 100, 100),
-      isOver: cat.spent >= cat.limit,
-      isWarning: (cat.spent / cat.limit) >= 0.8 && cat.spent < cat.limit
-    })).sort((a, b) => b.percentage - a.percentage);
-  }, [currentMonthTransactions]);
-
-  const dailyFlowData = useMemo(() => {
-    const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
-    const flowMap = Array.from({ length: daysInMonth }, (_, i) => ({ day: `${i + 1}`, income: 0, expense: 0 }));
-    currentMonthTransactions.forEach(tx => {
-      const txDay = new Date(tx.date).getDate() - 1;
-      if (tx.type === 'income') flowMap[txDay].income += Number(tx.amount);
-      else flowMap[txDay].expense += Number(tx.amount);
-    });
-    return flowMap;
-  }, [currentMonthTransactions]);
-
-  if (loading) return <div className="flex justify-center items-center h-64"><Loader2 className="animate-spin text-slate-900" size={32}/></div>;
+  if (loading) {
+    return (
+      <div className="flex flex-col justify-center items-center h-64 space-y-4">
+        <Loader2 className="animate-spin text-slate-900" size={32} />
+        <span className="text-sm font-bold text-slate-500 animate-pulse">Mensinkronkan Valuasi Aset & AI...</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+    <div className="max-w-6xl mx-auto space-y-6 pb-12 px-4 md:px-0 animate-in fade-in duration-500">
+      
+      <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Dashboard Utama</h1>
-          <p className="text-slate-500 text-sm">Visualisasi finansial dan kontrol anggaran.</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Kecerdasan Finansial</h1>
+          <p className="text-sm text-slate-500">Ringkasan aset, distribusi dompet, dan analisis cerdas.</p>
         </div>
+        <kbd className="hidden sm:inline-flex h-6 select-none items-center gap-1 rounded border border-slate-200 bg-white px-2 font-mono text-[10px] font-medium text-slate-400 shadow-sm">
+          Tekan <span className="font-bold text-slate-900">N</span> untuk transaksi
+        </kbd>
       </div>
 
-      {/* 1. KARTU METRIK */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-slate-900 p-6 rounded-2xl shadow-sm text-white">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-slate-400 text-sm font-medium">Total Kekayaan Bersih</h3>
-            <Wallet size={18} className="text-slate-300" />
+      {/* TIER 1: KEKAYAAN BERSIH & HUTANG */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+        
+        {/* Main Net Worth Card */}
+        <div className="md:col-span-8 bg-slate-900 rounded-3xl p-6 sm:p-8 text-white flex flex-col justify-between relative overflow-hidden shadow-lg">
+          <div className="relative z-10">
+            <p className="text-slate-400 text-sm font-bold tracking-wider uppercase mb-2 flex items-center gap-2"><Wallet size={16}/> Total Kekayaan Bersih</p>
+            <h2 className="text-4xl sm:text-5xl font-black tracking-tighter">{formatIDR(netWorth)}</h2>
           </div>
-          <p className="text-3xl font-bold tracking-tight">{formatRupiah(summary.total_balance)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-slate-500 text-sm font-medium">Pemasukan Bulan Ini</h3>
-            <TrendingUp size={18} className="text-blue-600" />
-          </div>
-          <p className="text-2xl font-bold text-slate-900">{formatRupiah(summary.monthly_income)}</p>
-        </div>
-        <div className="bg-white p-6 rounded-2xl border border-slate-200">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-slate-500 text-sm font-medium">Pengeluaran Bulan Ini</h3>
-            <TrendingDown size={18} className="text-slate-900" />
-          </div>
-          <p className="text-2xl font-bold text-slate-900">{formatRupiah(summary.monthly_expense)}</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* 2. NET WORTH TRACKER (Grafik Kumulatif Utama) */}
-        <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm flex flex-col">
-          <h3 className="text-base font-bold text-slate-900 mb-4">Tren Pertumbuhan Aset (Net Worth)</h3>
-          <div className="h-[250px] w-full mt-auto">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={netWorthData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="month_year" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} tickFormatter={(val) => `Rp${val/1000000}M`} width={60} />
-                <Tooltip formatter={(value) => formatRupiah(value)} labelStyle={{ color: '#0f172a', fontWeight: 'bold' }} contentStyle={{ borderRadius: '8px' }} />
-                <Line type="monotone" dataKey="cumulative_balance" name="Total Aset" stroke="#0f172a" strokeWidth={3} dot={{ r: 4, fill: '#0f172a' }} activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* 3. BUDGETING SYSTEM (Real-time Peringatan Pemborosan) */}
-        <div className="lg:col-span-1 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h3 className="text-base font-bold text-slate-900 mb-4 flex items-center justify-between">
-            Kontrol Anggaran
-            <span className="text-xs font-normal text-slate-500 px-2 py-1 bg-slate-100 rounded-full">{budgetProgress.length} Aktif</span>
-          </h3>
           
-          {budgetProgress.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-sm text-slate-400 py-10 text-center">
-              Belum ada transaksi pada kategori yang memiliki batas anggaran.
+          <div className="grid grid-cols-2 gap-4 mt-8 relative z-10 border-t border-slate-700/50 pt-6">
+            <div>
+              <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1 flex items-center gap-1"><Landmark size={12}/> Aset Liquid (Fiat)</p>
+              <p className="text-lg font-bold text-emerald-400">{formatIDR(assets.liquid)}</p>
             </div>
-          ) : (
-            <div className="space-y-5 overflow-y-auto max-h-[250px] pr-2">
-              {budgetProgress.map((budget, i) => (
-                <div key={i} className="relative">
-                  <div className="flex justify-between items-end mb-1">
-                    <span className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-                      {budget.isOver && <AlertTriangle size={14} className="text-red-500" />}
-                      {budget.name}
-                    </span>
-                    <span className="text-xs font-medium text-slate-500">
-                      {formatRupiah(budget.spent)} / {formatRupiah(budget.limit)}
-                    </span>
-                  </div>
-                  {/* Progress Bar Track */}
-                  <div className="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden">
-                    <div 
-                      className={`h-2.5 rounded-full transition-all duration-500 ${budget.isOver ? 'bg-red-500' : budget.isWarning ? 'bg-amber-500' : 'bg-slate-800'}`} 
-                      style={{ width: `${budget.percentage}%` }}
-                    />
-                  </div>
-                  {budget.isWarning && <p className="text-[10px] mt-1 text-amber-600 font-medium">Hampir melampaui batas!</p>}
-                </div>
-              ))}
+            <div>
+              <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1 flex items-center gap-1"><Coins size={12}/> Aset Volatil (Kripto/Emas)</p>
+              <p className="text-lg font-bold text-indigo-400">{formatIDR(assets.volatile)}</p>
             </div>
-          )}
+          </div>
+          <div className="absolute -right-12 -bottom-12 opacity-10 pointer-events-none">
+            <Activity size={250} strokeWidth={1} />
+          </div>
         </div>
+
+        {/* Debt / Liabilities Card */}
+        <div className="md:col-span-4 bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col justify-center">
+          <div className="p-3 bg-red-50 text-red-600 rounded-2xl w-fit mb-4">
+            <CreditCard size={24} />
+          </div>
+          <p className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-1">Total Liabilitas</p>
+          <h3 className="text-3xl font-black text-slate-900">{formatIDR(liabilities)}</h3>
+          <p className="text-xs text-slate-400 mt-2 font-medium">Akumulasi hutang yang memotong kekayaan bersih Anda.</p>
+        </div>
+
       </div>
 
-      {/* 4. ARUS KAS HARIAN BULAN INI (Tetap dipertahankan untuk Detail Mikro) */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-         <h3 className="text-base font-bold text-slate-900 mb-6">Arus Kas Harian (Bulan Berjalan)</h3>
-         <div className="h-[200px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyFlowData} margin={{ top: 0, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorInc" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#2563eb" stopOpacity={0.2}/><stop offset="95%" stopColor="#2563eb" stopOpacity={0}/></linearGradient>
-                  <linearGradient id="colorExp" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#0f172a" stopOpacity={0.1}/><stop offset="95%" stopColor="#0f172a" stopOpacity={0}/></linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />
-                <YAxis hide domain={['auto', 'auto']} />
-                <Tooltip formatter={(value) => formatRupiah(value)} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                <Area type="monotone" dataKey="income" name="Masuk" stroke="#2563eb" strokeWidth={2} fillOpacity={1} fill="url(#colorInc)" />
-                <Area type="monotone" dataKey="expense" name="Keluar" stroke="#0f172a" strokeWidth={2} fillOpacity={1} fill="url(#colorExp)" />
-              </AreaChart>
-            </ResponsiveContainer>
+      {/* TIER 2: DISTRIBUSI AKUN & AI PREDICTIVE (KEMBALI HADIR) */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+        
+        {/* Distribusi Akun */}
+        <div className="md:col-span-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex flex-col h-full max-h-[400px]">
+          <h3 className="text-base font-bold text-slate-900 mb-4">Distribusi Saldo</h3>
+          <div className="space-y-3 overflow-y-auto pr-2 no-scrollbar flex-1">
+            {accounts.map(acc => (
+              <div key={acc.id} className={`flex justify-between items-center p-3 rounded-xl border ${acc.type === 'debt' ? 'bg-red-50/50 border-red-100' : 'bg-slate-50 border-slate-100'}`}>
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{acc.name}</p>
+                  <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wider">{acc.type} • {acc.currency}</p>
+                </div>
+                <div className="text-right">
+                  <span className={`text-sm font-extrabold block ${acc.type === 'debt' ? 'text-red-600' : 'text-slate-900'}`}>
+                    {formatIDR(Math.abs(acc.balance))}
+                  </span>
+                  {acc.asset_ticker !== 'IDR' && (
+                    <span className="text-[10px] font-bold text-indigo-500">{acc.asset_quantity} {acc.asset_ticker}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+            {accounts.length === 0 && <p className="text-xs text-slate-400 italic">Belum ada akun dompet.</p>}
           </div>
+        </div>
+
+        {/* AI Predictive Analytics */}
+        <div className="md:col-span-8 bg-gradient-to-br from-blue-50 via-indigo-50 to-white p-6 rounded-3xl border border-blue-100 shadow-sm flex flex-col h-full max-h-[400px]">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="p-2.5 bg-blue-600 rounded-xl text-white shadow-md shadow-blue-200 flex-shrink-0">
+              <Sparkles size={20} className="animate-pulse" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900">Analisis Proaktif & Deteksi Anomali</h3>
+              <p className="text-xs text-slate-500">Algoritma AI memetakan proyeksi pengeluaran (*burn rate*) Anda hingga akhir bulan.</p>
+            </div>
+          </div>
+
+          <div className="overflow-y-auto pr-2 no-scrollbar flex-1 space-y-3">
+            {aiInsights.length === 0 ? (
+              <div className="flex items-center justify-center h-full text-sm text-slate-500 italic py-6">
+                Tidak ada anomali atau data anggaran pengeluaran bulan ini.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {aiInsights.map((insight, i) => (
+                  <div key={i} className={`p-4 rounded-2xl border flex gap-3 items-start transition-all ${
+                    insight.is_anomaly ? 'bg-red-50/70 border-red-100 text-red-900' : 'bg-white border-slate-200 text-slate-700'
+                  }`}>
+                    <AlertCircle size={18} className={`flex-shrink-0 mt-0.5 ${insight.is_anomaly ? 'text-red-500' : 'text-emerald-500'}`} />
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{insight.category_name}</p>
+                      <p className="text-sm font-medium leading-snug">{insight.ai_warning_message}</p>
+                      <div className="flex gap-4 pt-2 text-[11px] font-semibold text-slate-400 border-t border-slate-100 mt-2">
+                        <span>Proyeksi: <strong className={insight.is_anomaly ? 'text-red-600' : 'text-slate-700'}>{formatIDR(insight.projected_end_spent)}</strong></span>
+                        <span>Limit: <strong>{formatIDR(insight.budget_limit)}</strong></span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
       </div>
     </div>
   );

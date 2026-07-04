@@ -3,16 +3,18 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Auth from './pages/Auth';
 import Layout from './components/Layout';
+// Import hook useSync
+import { useSync } from './hooks/useSync';
 
-// Code Splitting: Komponen hanya diunduh oleh browser jika user mengunjungi rute tersebut
+// Code Splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Transaksi = lazy(() => import('./pages/Transaksi'));
 const Kategori = lazy(() => import('./pages/Kategori'));
 const Laporan = lazy(() => import('./pages/Laporan'));
 const Langganan = lazy(() => import('./pages/Langganan'));
+const Akun = lazy(() => import('./pages/Akun'));
 
 // Komponen Pelindung (Route Guard)
-// Mencegah akses langsung ke URL jika sesi tidak valid
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
   
@@ -22,7 +24,7 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-// Fallback UI saat mengunduh komponen JavaScript halaman
+// Fallback UI saat memuat halaman
 const PageLoader = () => (
   <div className="flex justify-center items-center h-full w-full">
     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -31,6 +33,12 @@ const PageLoader = () => (
 
 function AppRoutes() {
   const { user } = useAuth();
+
+  // ==============================================================================
+  // AKTIFKAN SINKRONISASI OTOMATIS DI SINI
+  // Sinyal internet akan dipantau secara real-time berdasarkan ID pengguna yang aktif
+  // ==============================================================================
+  useSync(user?.id);
 
   return (
     <Routes>
@@ -69,6 +77,11 @@ function AppRoutes() {
         <Route path="otomasi" element={
           <Suspense fallback={<PageLoader />}>
             <Langganan />
+          </Suspense>
+        } />
+        <Route path="akun" element={
+          <Suspense fallback={<PageLoader />}>
+            <Akun />
           </Suspense>
         } />
       </Route>

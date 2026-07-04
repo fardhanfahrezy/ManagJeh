@@ -2,22 +2,20 @@ import { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { Menu, Home, PlusCircle, Tags, PieChart, LogOut, X, CalendarDays } from 'lucide-react';
+// PERBAIKAN: Menambahkan ikon Wallet dari lucide-react
+import { Menu, Home, PlusCircle, Tags, PieChart, LogOut, X, CalendarDays, Wallet } from 'lucide-react';
 
 // ==============================================================================
-// 1. KOMPONEN LOGO (Telah di-Crop / Dihilangkan Ruang Kosongnya)
+// 1. KOMKOMPEN LOGO (Telah di-Crop / Dihilangkan Ruang Kosongnya)
 // ==============================================================================
 const Logo = () => (
   <div className="flex items-center pl-1">
     <svg 
-      /* Ukuran proporsional Tailwind */
       className="h-6 md:h-7 w-auto flex-shrink-0 object-contain"
-      /* PERBAIKAN KRITIS: Memotong ruang kosong raksasa dari AI (Crop viewBox) */
       viewBox="50 630 2330 490" 
       fill="none" 
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Kumpulan Path AI - Tidak ada yang dirubah, hanya kanvas viewBox yang di-crop */}
       <path fill="#3C54EC" d="M1614.52 812.424C1616.61 812.35 1618.7 812.324 1620.79 812.345C1647.5 812.67 1664.08 819.625 1682.37 838.53L1682.28 814.926L1725.09 815.031L1725.17 927.554C1725.18 945.793 1726.66 971.829 1723.93 989.216C1710.21 1076.41 1599.17 1075.12 1539.82 1035.35C1544.46 1027.71 1549.15 1020.1 1553.9 1012.53L1560.07 1002.81C1579.69 1015.95 1597.18 1022.78 1621.07 1023.87C1637.29 1024.62 1655.08 1021.69 1667.23 1010.09C1682.27 995.722 1681.18 978.173 1681.63 959.097C1635.17 1007.66 1538.36 982.702 1532.55 911.148C1528.04 855.684 1558.7 817.519 1614.52 812.424Z"/>
       <path fill="white" d="M1626.84 848.423C1653.65 849.649 1676.94 863.899 1680.98 892.173C1682.79 904.376 1679.58 916.792 1672.1 926.599C1662.06 939.663 1649.47 944.72 1633.7 946.751C1560.63 948.638 1555.68 852.707 1626.84 848.423Z"/>
       <path fill="#3C54EC" d="M818.37 755.482L853.617 755.955C853.805 779.509 853.836 803.064 853.708 826.619L853.909 997.194C846.969 997.31 815.444 998.635 811.667 996.046C812.576 945.218 811.941 892.535 811.944 841.562C802.321 855.4 791.529 874.285 782.485 889.01C765.179 916.996 748.013 945.069 730.989 973.228L712.496 973.08C704.759 962.183 696.866 948.318 689.887 936.75L654.157 877.422C649.187 869.176 637.262 848.435 631.743 841.911C633.656 890.957 632.344 948.044 632.391 997.507C625.437 997.654 595.099 998.86 590.725 996.603L590.139 755.661C601.75 755.903 613.363 755.965 624.975 755.849C635.914 771.821 649.444 795.847 659.678 812.844L722.523 916.888C753.073 863.793 786.625 807.885 818.37 755.482Z"/>
@@ -55,6 +53,7 @@ export default function Layout() {
 
   const navLinks = [
     { name: 'Dashboard', path: '/', icon: Home },
+    { name: 'Dompet & Akun', path: '/akun', icon: Wallet }, // Menu Baru Ditambahkan
     { name: 'Transaksi', path: '/transaksi', icon: PlusCircle },
     { name: 'Kategori', path: '/kategori', icon: Tags },
     { name: 'Laporan', path: '/laporan', icon: PieChart },
