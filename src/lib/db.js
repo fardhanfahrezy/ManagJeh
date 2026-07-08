@@ -3,10 +3,11 @@ import Dexie from 'dexie';
 // Inisialisasi Database Lokal di Browser
 export const localDB = new Dexie('ManagjehOfflineDB');
 
-// Struktur skema penyimpanan lokal untuk transaksi offline
+// Ganti skema Dexie menjadi:
 localDB.version(1).stores({
-  transactions: '++local_id, id, amount, type, description, date, category_id, account_id, synced'
+  transactions: '++local_id, id, synced' // Cukup index parameter relasi dan status sync
 });
+
 
 /**
  * Fungsi pembantu untuk menyimpan transaksi saat offline

@@ -1,17 +1,19 @@
 import { useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { localDB } from '../lib/db';
-import { financialEvents } from '../lib/events';
+import { useQueryClient } from '@tanstack/react-query';
 
-export function useSync(userId) {
+export function useSync() {
+  const queryClient = useQueryClient();
+
   useEffect(() => {
-    if (!userId) return;
-
     const syncOfflineData = async () => {
       if (!navigator.onLine) return;
 
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+
       try {
-        // Ambil semua transaksi offline yang belum tersinkronisasi (synced = 0)
         const unsyncedTransactions = await localDB.transactions
           .where('synced')
           .equals(0)
@@ -19,36 +21,37 @@ export function useSync(userId) {
 
         if (unsyncedTransactions.length === 0) return;
 
-        console.log(`Menemukan ${unsyncedTransactions.length} data offline. Mengunggah...`);
+        // Persiapkan payload untuk Batch Insert (mengamputasi loop request)
+        const payloads = unsyncedTransactions.map(tx => {
+          const { local_id, synced, user_id, ...rest } = tx;
+          return rest;
+        });
 
-        for (const tx of unsyncedTransactions) {
-          // Siapkan data untuk dikirim ke Supabase (buang kolom id lokal)
-          const { local_id, synced, ...payload } = tx;
-          payload.user_id = userId;
+        // Ubah logika di useSync.js
+        const { error } = await supabase
+          .from('transactions')
+          .upsert(payloads, { onConflict: 'id' });
+        // Data baru akan di-insert, data lama akan di-update
 
-          const { error } = await supabase.from('transactions').insert([payload]);
+        if (!error) {
+          // Bersihkan localDB berdasarkan array id yang berhasil
+          const localIds = unsyncedTransactions.map(tx => tx.local_id);
+          await localDB.transactions.bulkDelete(localIds);
 
-          if (!error) {
-            // Jika sukses, ubah status atau hapus dari database lokal browser
-            await localDB.transactions.delete(local_id);
-          } else {
-            console.error("Gagal sinkronisasi baris:", error.message);
-          }
+          // Invalidate cache TanStack Query secara global sebagai pengganti custom Event Bus
+          queryClient.invalidateQueries();
+          console.log(`[PWA Sync] ${payloads.length} entri disinkronkan via Batch Insert.`);
+        } else {
+          throw error;
         }
-
-        // Beritahu komponen global bahwa data berubah agar UI diperbarui
-        financialEvents.emit('data_mutated');
-        console.log('Sinkronisasi data offline selesai dengan sukses.');
       } catch (err) {
-        console.error('Proses sinkronisasi latar belakang gagal:', err.message);
+        console.error('[PWA Sync] Kegagalan batch sinkronisasi:', err.message);
       }
     };
 
-    // Dengarkan perubahan status koneksi perangkat
     window.addEventListener('online', syncOfflineData);
-    // Jalankan pengecekan langsung saat aplikasi pertama kali dibuka
     syncOfflineData();
 
     return () => window.removeEventListener('online', syncOfflineData);
-  }, [userId]);
+  }, [queryClient]);
 }

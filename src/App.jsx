@@ -1,92 +1,94 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Auth from './pages/Auth';
 import Layout from './components/Layout';
-// Import hook useSync
 import { useSync } from './hooks/useSync';
+import { queryClient } from './lib/queryClient';
 
-// Code Splitting
+// Code Splitting Dinamis untuk Pemangkasan Ukuran Bundle Utama
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Transaksi = lazy(() => import('./pages/Transaksi'));
-const Kategori = lazy(() => import('./pages/Kategori'));
 const Laporan = lazy(() => import('./pages/Laporan'));
 const Langganan = lazy(() => import('./pages/Langganan'));
 const Akun = lazy(() => import('./pages/Akun'));
 
-// Komponen Pelindung (Route Guard)
+// Komponen Proteksi Akses (Route Guard)
 function ProtectedRoute({ children }) {
   const { user } = useAuth();
-  
+
   if (!user) {
     return <Navigate to="/login" replace />;
   }
   return children;
 }
 
-// Fallback UI saat memuat halaman
+// Representasi Komponen Indikator Muat Data yang Teroptimasi (Non-blocking)
 const PageLoader = () => (
-  <div className="flex justify-center items-center h-full w-full">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+  <div className="flex justify-center items-center min-h-[400px] w-full" role="status" aria-label="Memuat halaman">
+    <div className="smooth-spinner rounded-full h-8 w-8 border-2 border-blue-600"></div>
+  </div>
+);
+
+// ==============================================================================
+// KOMPONEN PEMBUNGKUS ANIMASI (Satu Sumber Kebenaran)
+// Menggunakan Animasi Native Glide (Micro X-Shift)
+// ==============================================================================
+const AnimatedPage = ({ children }) => (
+  <div className="animate-native-glide w-full h-full">
+    {children}
   </div>
 );
 
 function AppRoutes() {
   const { user } = useAuth();
 
-  // ==============================================================================
-  // AKTIFKAN SINKRONISASI OTOMATIS DI SINI
-  // Sinyal internet akan dipantau secara real-time berdasarkan ID pengguna yang aktif
-  // ==============================================================================
+  // Bersihkan cache secara menyeluruh saat user logout untuk mencegah kebocoran data
+  useEffect(() => {
+    if (!user) {
+      queryClient.clear();
+    }
+  }, [user]);
+
+  // Eksekusi Sinkronisasi Real-time. 
+  // Pastikan di dalam hook useSync telah diimplementasikan pembersihan event listener (cleanup function)
   useSync(user?.id);
+  // useRealtimeSync(user?.id);
 
   return (
     <Routes>
-      {/* Jika user mengakses root tapi belum login, arahkan ke /login */}
+      {/* Rute Auth (Animasi Zoom-In diatur di dalam file Auth.jsx) */}
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Auth />} />
 
-      {/* Rute yang dilindungi, semuanya menggunakan Layout yang sama */}
-      <Route 
-        path="/" 
-        element={
-          <ProtectedRoute>
-            <Layout />
-          </ProtectedRoute>
-        }
-      >
+      {/* Rute Utama dengan Animasi Fade-In */}
+      <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index element={
           <Suspense fallback={<PageLoader />}>
-            <Dashboard />
+            <AnimatedPage><Dashboard /></AnimatedPage>
           </Suspense>
         } />
         <Route path="transaksi" element={
           <Suspense fallback={<PageLoader />}>
-            <Transaksi />
+            <AnimatedPage><Transaksi /></AnimatedPage>
           </Suspense>
         } />
         <Route path="laporan" element={
           <Suspense fallback={<PageLoader />}>
-            <Laporan />
+            <AnimatedPage><Laporan /></AnimatedPage>
           </Suspense>
         } />
-        <Route path="kategori" element={
+        <Route path="langganan" element={
           <Suspense fallback={<PageLoader />}>
-            <Kategori />
-          </Suspense>
-        } />
-        <Route path="otomasi" element={
-          <Suspense fallback={<PageLoader />}>
-            <Langganan />
+            <AnimatedPage><Langganan /></AnimatedPage>
           </Suspense>
         } />
         <Route path="akun" element={
           <Suspense fallback={<PageLoader />}>
-            <Akun />
+            <AnimatedPage><Akun /></AnimatedPage>
           </Suspense>
         } />
       </Route>
-      
-      {/* Tangkap URL tidak valid dan arahkan ke dashboard/login */}
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

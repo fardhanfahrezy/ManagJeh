@@ -1,13 +1,26 @@
 @import "tailwindcss";
 
-/* Mengganti default font sans Tailwind menjadi Inter */
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
-/* Memastikan background dan text default aplikasi bersih */
 @layer base {
   body {
-    @apply bg-gray-50 text-gray-900 antialiased;
+    @apply bg-gray-50 text-gray-900 antialiased selection:bg-blue-500 selection:text-white;
   }
+}
+
+/* Utilitas Global untuk Mencegah Layout Shift pada scrollbar */
+html {
+  scrollbar-gutter: stable;
+}
+
+/* Animasi mikro untuk Page Loader agar memenuhi standar performa */
+.smooth-spinner {
+  border-right-color: transparent;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
