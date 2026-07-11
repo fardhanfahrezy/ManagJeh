@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -13,6 +13,12 @@ export default function Kategori({ isOpen, onClose, type, categories }) {
   const [newCatBudget, setNewCatBudget] = useState('');
   const [catMessage, setCatMessage] = useState({ type: '', text: '' });
   const [deleteCatModal, setDeleteCatModal] = useState({ isOpen: false, id: null, name: '' });
+
+  // Memoisasi filtered categories untuk performa
+  const filteredCategories = useMemo(
+    () => categories.filter((c) => c.type === type),
+    [categories, type]
+  );
 
   // === DYNAMIC TITLE LOGIC ===
   const getTitle = () => {
@@ -181,12 +187,10 @@ export default function Kategori({ isOpen, onClose, type, categories }) {
           <div>
             <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Daftar Aktif</h4>
             <ul className="space-y-2">
-              {categories
-                .filter((c) => c.type === type)
-                .map((cat) => (
-                  <li
-                    key={cat.id}
-                    className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white"
+              {filteredCategories.map((cat) => (
+                <li
+                  key={cat.id}
+                  className="flex items-center justify-between p-3 rounded-xl border border-slate-100 bg-white"
                   >
                     <div className="flex items-center gap-3">
                       <div
@@ -214,7 +218,7 @@ export default function Kategori({ isOpen, onClose, type, categories }) {
                     </button>
                   </li>
                 ))}
-              {categories.filter((c) => c.type === type).length === 0 && (
+              {filteredCategories.length === 0 && (
                 <p className="text-xs text-slate-400 italic text-center py-4">
                   Belum ada kategori terdaftar.
                 </p>

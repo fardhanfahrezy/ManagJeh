@@ -30,12 +30,14 @@ export async function queueOfflineAction(action, entityId, userId, payload = nul
 /**
  * Menyimpan transaksi ke IndexedDB saat offline.
  * @param {object} transactionData - Data transaksi lengkap
+ * @param {string} userId - ID pengguna yang sedang login
  */
-export async function saveTransactionOffline(transactionData) {
+export async function saveTransactionOffline(transactionData, userId) {
+  if (!userId) throw new Error("user_id diperlukan untuk menyimpan transaksi offline.");
   return await localDB.transactions.add({
     ...transactionData,
     synced: 0, // 0 = belum disinkronisasi
     local_id: crypto.randomUUID(), // ID lokal unik
-    user_id: null // Akan diisi saat sinkronisasi oleh useSync
+    user_id: userId // Akan diisi saat sinkronisasi oleh useSync
   });
 }

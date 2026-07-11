@@ -99,7 +99,7 @@ export default function Transaksi() {
 
       if (!navigator.onLine) {
         // PERBAIKAN: Gunakan finalPayload.id dan finalPayload, BUKAN payload mentah
-        await queueOfflineAction('INSERT', finalPayload.id, finalPayload);
+        await queueOfflineAction('INSERT', finalPayload.id, user?.id, finalPayload);
         return 'offline';
       }
 

@@ -24,7 +24,19 @@ export const AuthProvider = ({ children }) => {
 
     window.addEventListener('session-expired', handleSessionExpired);
 
-    const getSession = async () => { /* ... kode getSession sebelumnya tetap sama ... */ };
+    const getSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (isMounted) {
+          setUser(session?.user ?? null);
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('[AuthContext] Error getting session:', error);
+        if (isMounted) setLoading(false);
+      }
+    };
+ 
     getSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
