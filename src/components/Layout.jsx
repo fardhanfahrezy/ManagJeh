@@ -30,8 +30,6 @@ export default function Layout() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Memicu sinkronisasi antrean PWA (Background)
-  useSync();
   // Memicu sinkronisasi WebSocket untuk Dompet Komunitas
   useRealtimeSync(user?.id); 
 

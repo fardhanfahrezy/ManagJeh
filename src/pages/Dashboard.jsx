@@ -3,11 +3,25 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { formatIDR } from '../lib/utils';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
+import { generateBuckets, findBucket, calculateStartDate } from '../lib/dateHelpers';
 import { Wallet, Activity, Landmark, Sparkles, AlertCircle, Eye, EyeOff, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 // ==============================================================================
-// 1. SKELETON LOADING (DIOPTIMALKAN UNTUK MOBILE RESPONSIVENESS)
+// 1. PRESET FILTER ARUS KAS (Single Dropdown Config)
+// Ditambahkan di luar komponen agar tidak membebani memori saat re-render
+// ==============================================================================
+const CASH_FLOW_PRESETS = [
+  { label: '7 Hari Terakhir', type: 'minggu', value: 1 },
+  { label: '14 Hari Terakhir', type: 'minggu', value: 2 },
+  { label: '6 Bulan Terakhir', type: 'bulan', value: 6 },
+  { label: '12 Bulan Terakhir', type: 'bulan', value: 12 },
+  { label: '5 Tahun Terakhir', type: 'tahun', value: 5 },
+];
+
+// ==============================================================================
+// 2. SKELETON LOADING
 // ==============================================================================
 const DashboardSkeleton = () => (
   <div className="max-w-6xl mx-auto space-y-6 pb-12 px-4 md:px-0 animate-pulse w-full">
@@ -43,7 +57,7 @@ const DashboardSkeleton = () => (
       </div>
     </div>
 
-    {/* Row 3: Cash Flow & Activity (Responsif Mobile) */}
+    {/* Row 3 */}
     <div className="grid grid-cols-1 gap-6 mt-6">
       <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 h-[350px] flex flex-col">
         <div className="flex flex-col sm:flex-row justify-between gap-4 mb-6"><div className="h-6 bg-slate-200 rounded-lg w-40"></div><div className="h-8 bg-slate-200 rounded-xl w-32"></div></div>
@@ -59,7 +73,7 @@ const DashboardSkeleton = () => (
 
 
 // ==============================================================================
-// 2. KOMPONEN UTAMA
+// 3. KOMPONEN UTAMA
 // ==============================================================================
 export default function Dashboard() {
   const { user } = useAuth();
@@ -67,41 +81,19 @@ export default function Dashboard() {
   
   const [showBalances, setShowBalances] = useState(false);
   const [showDebtDetails, setShowDebtDetails] = useState(false);
-  const [cashFlowMode, setCashFlowMode] = useState('expense'); // 'income' atau 'expense'
+  const [cashFlowMode, setCashFlowMode] = useState('expense'); 
 
-  // === STATE BARU UNTUK FILTER ARUS KAS ===
-  const [periodType, setPeriodType] = useState('bulan'); // 'minggu' | 'bulan' | 'tahun'
-  const [periodValue, setPeriodValue] = useState(6);
-
-  // Mencegah nilai melampaui batas saat tipe diubah
-  const handlePeriodTypeChange = (e) => {
-    const newType = e.target.value;
-    setPeriodType(newType);
-    if (newType === 'minggu' && periodValue > 4) setPeriodValue(4);
-    if (newType === 'tahun' && periodValue > 5) setPeriodValue(5);
-  };
+  // STATE FILTER ARUS KAS (Diperbaiki)
+  const [activeFilter, setActiveFilter] = useState(CASH_FLOW_PRESETS[3]); 
+  const [hoveredBarIndex, setHoveredBarIndex] = useState(null);
 
   const { data, isLoading, isError } = useQuery({
-    // Masukkan state ke dalam queryKey agar otomatis refetch saat filter diganti
-    queryKey: ['dashboardData', user?.id, periodType, periodValue], 
+    queryKey: ['dashboardData', user?.id, activeFilter.type, activeFilter.value], 
     enabled: !!user?.id,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
       
-      // 1. Hitung Batas Waktu Mulai (Start Date) secara dinamis
-      const startDate = new Date();
-      startDate.setHours(0, 0, 0, 0);
-
-      if (periodType === 'minggu') {
-        // Kurangi N minggu (N * 7 hari)
-        startDate.setDate(startDate.getDate() - (periodValue * 7) + 1);
-      } else if (periodType === 'bulan') {
-        startDate.setMonth(startDate.getMonth() - periodValue + 1);
-        startDate.setDate(1); // Set ke tanggal 1
-      } else if (periodType === 'tahun') {
-        startDate.setFullYear(startDate.getFullYear() - periodValue + 1);
-        startDate.setMonth(0, 1); // Set ke 1 Januari
-      }
+      const startIsoDate = calculateStartDate(activeFilter.type, activeFilter.value);
 
       const [statsRes, accountsRes, insightsRes, recentTxRes, flowTxRes] = await Promise.all([
         supabase.from('user_dashboard_stats').select('*').eq('user_id', user.id).maybeSingle(),
@@ -110,11 +102,10 @@ export default function Dashboard() {
         supabase.from('transactions')
           .select(`id, amount, type, date, description, categories (name), accounts!transactions_account_id_fkey (name)`)
           .eq('user_id', user.id).is('deleted_at', null).order('date', { ascending: false }).limit(5),
-        // Gunakan startDate yang sudah dihitung secara dinamis
         supabase.from('transactions')
           .select('amount, type, date')
           .eq('user_id', user.id)
-          .gte('date', startDate.toISOString())
+          .gte('date', startIsoDate)
           .is('deleted_at', null)
       ]);
 
@@ -123,52 +114,15 @@ export default function Dashboard() {
       if (recentTxRes.error) throw recentTxRes.error; 
       if (flowTxRes.error) throw flowTxRes.error;
 
-      // 2. Siapkan Wadah Kosong (Buckets) sesuai Tipe
-      const buckets = [];
-      if (periodType === 'minggu') {
-        const totalDays = periodValue * 7;
-        for(let i = totalDays - 1; i >= 0; i--) {
-          const d = new Date(); d.setDate(d.getDate() - i);
-          buckets.push({
-            label: d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
-            matchKey: d.toDateString(), // Contoh: Wed Jul 11 2026
-            year: d.getFullYear(), income: 0, expense: 0
-          });
-        }
-      } else if (periodType === 'bulan') {
-        for(let i = periodValue - 1; i >= 0; i--) {
-          const d = new Date(); d.setMonth(d.getMonth() - i);
-          buckets.push({
-            label: d.toLocaleDateString('id-ID', { month: 'short' }),
-            matchKey: `${d.getMonth()}-${d.getFullYear()}`,
-            year: d.getFullYear(), income: 0, expense: 0
-          });
-        }
-      } else if (periodType === 'tahun') {
-        for(let i = periodValue - 1; i >= 0; i--) {
-          const d = new Date(); d.setFullYear(d.getFullYear() - i);
-          buckets.push({
-            label: d.getFullYear().toString(),
-            matchKey: d.getFullYear().toString(),
-            year: d.getFullYear(), income: 0, expense: 0
-          });
-        }
-      }
-
-      // 3. Masukkan Data Transaksi ke dalam Bucket yang Tepat
+      const buckets = generateBuckets(activeFilter.type, activeFilter.value);
+      
       if (flowTxRes.data) {
         flowTxRes.data.forEach(tx => {
           if (tx.type === 'transfer') return;
-          const txDate = new Date(tx.date);
           
-          let key;
-          if (periodType === 'minggu') key = txDate.toDateString();
-          else if (periodType === 'bulan') key = `${txDate.getMonth()}-${txDate.getFullYear()}`;
-          else if (periodType === 'tahun') key = txDate.getFullYear().toString();
-
-          const match = buckets.find(b => b.matchKey === key);
+          const match = findBucket(buckets, tx.date, activeFilter.type);
           if (match) {
-            const safeAmount = Number(tx.amount) || 0;
+            const safeAmount = Number(tx.amount) || 0; 
             if (tx.type === 'income') match.income += safeAmount;
             if (tx.type === 'expense') match.expense += safeAmount;
           }
@@ -180,12 +134,11 @@ export default function Dashboard() {
         accounts: accountsRes.data || [],
         aiInsights: insightsRes.data || [],
         recentTransactions: recentTxRes.data || [],
-        cashFlow: buckets // Data yang sudah di-bucket
+        cashFlow: buckets 
       };
     }
   });
 
-  // Hotkey N
   useEffect(() => {
     const handleKeyPress = (e) => {
       const active = document.activeElement;
@@ -207,9 +160,6 @@ export default function Dashboard() {
   const liquidAssets = data.accounts.filter(a => ['bank', 'cash', 'e-wallet'].includes(a.type)).reduce((acc, curr) => acc + curr.balance, 0);
   const investmentAssets = data.accounts.filter(a => ['crypto', 'investment'].includes(a.type)).reduce((acc, curr) => acc + curr.balance, 0);
   const totalDebt = data.stats.total_liabilities;
-
-  // Nilai Maksimal untuk menghitung persentase Tinggi Grafik Bar
-  const maxFlowValue = Math.max(...data.cashFlow.map(d => cashFlowMode === 'income' ? d.income : d.expense), 1);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12 px-4 md:px-0">
@@ -320,40 +270,31 @@ export default function Dashboard() {
       </div>
 
       {/* ==============================================================================
-          FITUR ARUS KAS & AKTIVITAS (SUDAH RESPONSIF & DATA ASLI)
+          FITUR ARUS KAS & AKTIVITAS (RECHARTS INTEGRATION)
           ============================================================================== */}
       
-      {/* SECTION ARUS KAS (CASH FLOW) */}
       <div className="grid grid-cols-1 gap-6 mt-6">
-        <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-sm flex flex-col overflow-hidden">
+        <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-sm flex flex-col overflow-hidden w-full">
           
-          {/* Header & Filter Responsif */}
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-            <div className="w-full sm:w-auto">
+          {/* Header & Filter Control */}
+          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6">
+            <div className="w-full xl:w-auto">
               <h3 className="font-bold text-lg text-slate-900 mb-2">Arus Kas (Cash Flow)</h3>
-              <div className="flex items-center gap-2">
-                <select 
-                  value={periodType} 
-                  onChange={handlePeriodTypeChange}
-                  className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700 cursor-pointer"
-                >
-                  <option value="minggu">Harian (Minggu)</option>
-                  <option value="bulan">Bulanan</option>
-                  <option value="tahun">Tahunan</option>
-                </select>
-                <select 
-                  value={periodValue} 
-                  onChange={(e) => setPeriodValue(Number(e.target.value))}
-                  className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700 cursor-pointer"
-                >
-                  {Array.from({ length: periodType === 'minggu' ? 4 : periodType === 'bulan' ? 12 : 5 }, (_, i) => (
-                    <option key={i+1} value={i+1}>{i+1} {periodType}</option>
-                  ))}
-                </select>
-              </div>
+              
+              <select 
+                value={JSON.stringify(activeFilter)} 
+                onChange={(e) => setActiveFilter(JSON.parse(e.target.value))}
+                className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700 cursor-pointer w-full sm:w-auto transition-all"
+              >
+                {CASH_FLOW_PRESETS.map((preset, idx) => (
+                  <option key={idx} value={JSON.stringify(preset)}>
+                    {preset.label}
+                  </option>
+                ))}
+              </select>
             </div>
             
-            <div className="bg-slate-100 p-1 rounded-xl flex text-xs font-bold w-full sm:w-auto">
+            <div className="bg-slate-100 p-1 rounded-xl flex text-xs font-bold w-full xl:w-auto">
               <button 
                 onClick={() => setCashFlowMode('income')}
                 className={`flex-1 sm:flex-none px-4 py-2 rounded-lg transition-all outline-none ${cashFlowMode === 'income' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
@@ -365,50 +306,88 @@ export default function Dashboard() {
             </div>
           </div>
           
-          {/* Scrollable Chart Wrapper (Penting untuk mengatasi batas layar HP) */}
-          <div className="overflow-x-auto pb-4 scrollbar-thin">
-            <div className="min-w-[600px] flex-none flex items-end justify-between gap-1 px-1 h-[200px] mt-2 border-b border-slate-100 pb-0 relative">
-              {/* Garis Dasar */}
-              <div className="absolute left-0 bottom-0 w-full border-t border-dashed border-slate-200 z-0"></div>
-              
-              {data.cashFlow.map((item, i) => {
-                const value = cashFlowMode === 'income' ? item.income : item.expense;
-                const validMax = maxFlowValue > 0 ? maxFlowValue : 1; 
-                const heightPercent = (value / validMax) * 100;
-                const visualHeight = Math.max(Number(heightPercent) || 0, 4); 
-
-                return (
-                  <div key={i} className="flex-1 max-w-[64px] h-full flex flex-col justify-end relative z-10 group cursor-pointer px-1">
-                    {/* Tooltip */}
-                    <div className="hidden group-hover:block absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-lg whitespace-nowrap shadow-lg z-50 pointer-events-none">
-                      <span className="block text-[10px] text-slate-400 font-normal mb-0.5">{item.label} {periodType !== 'tahun' && item.year}</span>
-                      {showBalances ? formatIDR(value) : 'Rp •••••••••'}
-                    </div>
+          {/* RECHARTS COMPONENT */}
+          <div className="w-full h-[250px] mt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart 
+                data={data.cashFlow} 
+                margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                onMouseLeave={() => setHoveredBarIndex(null)}
+              >
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 11, fontWeight: 600, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval="preserveStartEnd" 
+                />
+                
+                <YAxis
+                  tick={{ fontSize: 10, fontWeight: 500, fill: '#94a3b8' }}
+                  axisLine={false}
+                  tickLine={false}
+                  width={60}
+                  tickFormatter={(v) => {
+                    if (!showBalances) return '•••';
+                    if (v >= 1000000000) return `Rp${(v / 1000000000).toFixed(1)}M`;
+                    if (v >= 1000000) return `Rp${(v / 1000000).toFixed(1)}Jt`;
+                    if (v >= 1000) return `Rp${(v / 1000).toFixed(0)}Rb`;
+                    return `Rp${v}`;
+                  }}
+                />
+                
+                <Tooltip
+                  cursor={{ fill: '#f8fafc' }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      const dataItem = payload[0].payload;
+                      const value = cashFlowMode === 'income' ? dataItem.income : dataItem.expense;
+                      return (
+                        <div className="bg-slate-900 text-white p-3 rounded-xl shadow-xl border border-slate-800 text-xs font-bold z-50">
+                          <p className="text-slate-400 font-normal mb-1">
+                            {dataItem.label} {activeFilter.type !== 'tahun' && dataItem.year}
+                          </p>
+                          <p className="text-sm">
+                            {showBalances ? formatIDR(value) : 'Rp •••••••••'}
+                          </p>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
+                />
+                
+                <Bar
+                  dataKey={cashFlowMode}
+                  radius={[6, 6, 0, 0]}
+                  maxBarSize={48}
+                  animationDuration={800}
+                  animationEasing="ease-in-out"
+                >
+                  {data.cashFlow.map((entry, index) => {
+                    const baseColor = cashFlowMode === 'income' ? '#10b981' : '#ef4444';
+                    const isFocused = hoveredBarIndex === null || hoveredBarIndex === index;
                     
-                    {/* Batang Grafik */}
-                    <div 
-                      className={`w-full rounded-t-lg transition-all duration-700 ease-out ${
-                        cashFlowMode === 'income' ? 'bg-emerald-100 group-hover:bg-emerald-500' : 'bg-red-100 group-hover:bg-red-500'
-                      }`} 
-                      style={{ height: `${visualHeight}%` }}
-                    ></div>
-                  </div>
-                );
-              })}
-            </div>
-            
-            {/* Label Sumbu X */}
-            <div className="min-w-[600px] flex justify-between px-1 mt-2 text-[10px] sm:text-xs font-bold text-slate-400">
-              {data.cashFlow.map((item, i) => (
-                <span key={i} className="flex-1 max-w-[64px] text-center truncate px-1">{item.label}</span>
-              ))}
-            </div>
+                    return (
+                      <Cell 
+                        key={`cell-${index}`} 
+                        fill={baseColor}
+                        fillOpacity={isFocused ? 1 : 0.3}
+                        className="transition-all duration-300 ease-out cursor-pointer" 
+                        onMouseEnter={() => setHoveredBarIndex(index)}
+                      />
+                    );
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
 
         </div>
       </div>
 
-      {/* SECTION AKTIVITAS TERBARU (RESPONSIF & SCROLLABLE MOBILE) */}
       <div className="grid grid-cols-1 gap-6 mt-6">
         <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
           
