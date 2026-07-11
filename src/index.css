@@ -2,6 +2,9 @@
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  
+  /* Definisikan custom animation untuk tailwind */
+  --animate-native-glide: native-glide 0.3s cubic-bezier(0.25, 1, 0.5, 1) forwards;
 }
 
 @layer base {
@@ -10,12 +13,10 @@
   }
 }
 
-/* Utilitas Global untuk Mencegah Layout Shift pada scrollbar */
 html {
   scrollbar-gutter: stable;
 }
 
-/* Animasi mikro untuk Page Loader agar memenuhi standar performa */
 .smooth-spinner {
   border-right-color: transparent;
   animation: spin 0.6s linear infinite;
@@ -23,4 +24,16 @@ html {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* Animasi native-glide */
+@keyframes native-glide {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

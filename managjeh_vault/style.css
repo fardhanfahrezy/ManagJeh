@@ -1,0 +1,222 @@
+/* 1. CSS Variables & Reset */
+:root {
+    --bg-color: #E5E7EB; /* Sedikit lebih gelap dari referensi agar card putih menonjol */
+    --card-bg: #FFFFFF;
+    --primary: #3B82F6;
+    --primary-hover: #2563EB;
+    --text-main: #1F2937;
+    --text-muted: #6B7280; /* Disesuaikan untuk rasio kontras yang lebih baik dari desain asli */
+    --input-bg: #F3F4F6;
+    --input-border-focus: #93C5FD;
+    
+    --radius-card: 32px;
+    --radius-input: 16px;
+    --radius-btn: 100px;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+/* 2. Layout Structure */
+.auth-container {
+    width: 100%;
+    max-width: 400px; /* Adaptasi mobile-first untuk tampilan desktop */
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.auth-header {
+    margin-bottom: 24px;
+}
+
+.brand-name {
+    color: var(--primary);
+    font-size: 24px;
+    font-weight: 700;
+}
+
+/* 3. Card Styling */
+.auth-card {
+    background-color: var(--card-bg);
+    width: 100%;
+    border-radius: var(--radius-card);
+    padding: 32px 24px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+}
+
+.card-title {
+    font-size: 22px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 32px;
+    line-height: 1.3;
+}
+
+/* 4. Form Components */
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.input-group label {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.input-group input:not([type="checkbox"]) {
+    width: 100%;
+    padding: 16px;
+    background-color: var(--input-bg);
+    border: 2px solid transparent; /* Persiapan untuk focus state */
+    border-radius: var(--radius-input);
+    font-size: 14px;
+    color: var(--text-main);
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.input-group input:not([type="checkbox"])::placeholder {
+    color: var(--text-muted); /* Kontras diperbaiki */
+}
+
+/* Aksesibilitas: Focus state yang jelas */
+.input-group input:not([type="checkbox"]):focus {
+    border-color: var(--input-border-focus);
+    background-color: var(--card-bg);
+}
+
+.password-wrapper {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-wrapper input {
+    padding-right: 48px; /* Ruang untuk ikon mata */
+}
+
+.toggle-password {
+    position: absolute;
+    right: 16px;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* 5. Options (Checkbox & Link) */
+.form-options {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    margin-top: -4px;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    color: var(--text-muted);
+}
+
+.checkbox-label input[type="checkbox"] {
+    accent-color: var(--primary);
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
+.forgot-link {
+    color: var(--primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.forgot-link:hover {
+    text-decoration: underline;
+}
+
+/* 6. Buttons */
+.btn-primary {
+    background-color: var(--primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-btn);
+    padding: 16px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-top: 8px;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-hover);
+}
+
+/* 7. Social Login */
+.social-login {
+    margin-top: 32px;
+    text-align: center;
+}
+
+.social-text {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}
+
+.social-buttons {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+}
+
+.btn-social {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid #E5E7EB;
+    background-color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    font-size: 18px;
+    font-weight: bold;
+    color: var(--text-main);
+    box-shadow: 0 2px 5px rgba(0,0,0,0.02);
+    transition: transform 0.1s, box-shadow 0.1s;
+}
+
+.btn-social:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.05);
+}

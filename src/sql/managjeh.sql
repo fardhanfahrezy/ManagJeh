@@ -437,3 +437,164 @@ ALTER PUBLICATION supabase_realtime ADD TABLE transactions;
 
 -- Paksa Reload Skema untuk PostgREST Supabase
 NOTIFY pydantic_supabase_admin_pgrst, 'reload schema';
+
+-- ====================================================================
+-- PATCH 1: HAPUS DEAD CODE YANG BERBAHAYA
+-- ====================================================================
+-- Karena mutasi saldo sudah diurus oleh Trigger 'update_balance_after_transaction',
+-- fungsi manual ini harus dimusnahkan agar tidak bisa dipanggil via API.
+DROP FUNCTION IF EXISTS public.increment_account_balance(UUID, NUMERIC);
+DROP FUNCTION IF EXISTS public.decrement_account_balance(UUID, NUMERIC);
+
+-- ====================================================================
+-- PATCH 2: AMANKAN FUNGSI UNDANGAN DOMPET (Otorisasi Akses)
+-- ====================================================================
+CREATE OR REPLACE FUNCTION invite_user_to_wallet(wallet_id UUID, invitee_email TEXT)
+RETURNS void AS $$
+DECLARE target_user_id UUID;
+BEGIN
+    -- SECURITY GATE: Pastikan pemanggil adalah 'owner' atau 'admin' dari dompet tersebut
+    IF NOT has_write_access(wallet_id) THEN
+        RAISE EXCEPTION 'Akses Ditolak: Anda tidak memiliki izin untuk mengundang pengguna ke dompet ini.';
+    END IF;
+
+    SELECT id INTO target_user_id FROM auth.users WHERE email = invitee_email;
+    IF target_user_id IS NULL THEN
+        RAISE EXCEPTION 'Pengguna dengan email tersebut tidak ditemukan.';
+    END IF;
+    
+    INSERT INTO public.account_members (account_id, user_id, role) 
+    VALUES (wallet_id, target_user_id, 'member');
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- ====================================================================
+-- PATCH 3: CABUT SECURITY DEFINER DARI FUNGSI ANALITIK
+-- ====================================================================
+-- Mengubah fungsi menjadi SECURITY INVOKER (default jika definer dihapus).
+-- Ini memaksa fungsi untuk tunduk pada aturan RLS pengguna yang sedang login.
+
+CREATE OR REPLACE FUNCTION get_financial_summary(user_id_param UUID)
+RETURNS json AS $$
+DECLARE
+    total_balance NUMERIC; monthly_income NUMERIC; monthly_expense NUMERIC;
+BEGIN
+    -- Tambahan Keamanan Ekstra (Hardcoded Check)
+    IF user_id_param != auth.uid() THEN
+        RAISE EXCEPTION 'Akses Ditolak: Anda tidak dapat melihat ringkasan keuangan orang lain.';
+    END IF;
+
+    SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END), 0) INTO total_balance
+    FROM public.transactions WHERE user_id = user_id_param AND deleted_at IS NULL;
+
+    SELECT COALESCE(SUM(amount), 0) INTO monthly_income
+    FROM public.transactions
+    WHERE user_id = user_id_param AND type = 'income' AND deleted_at IS NULL 
+    AND date_trunc('month', date) = date_trunc('month', CURRENT_DATE);
+
+    SELECT COALESCE(SUM(amount), 0) INTO monthly_expense
+    FROM public.transactions
+    WHERE user_id = user_id_param AND type = 'expense' AND deleted_at IS NULL 
+    AND date_trunc('month', date) = date_trunc('month', CURRENT_DATE);
+
+    RETURN json_build_object(
+        'total_balance', total_balance,
+        'monthly_income', monthly_income,
+        'monthly_expense', monthly_expense
+    );
+END;
+$$ LANGUAGE plpgsql; -- SECURITY DEFINER DIHAPUS
+
+CREATE OR REPLACE FUNCTION get_monthly_net_worth(user_id_param UUID)
+RETURNS TABLE(month_year TEXT, cumulative_balance NUMERIC) AS $$
+BEGIN
+    IF user_id_param != auth.uid() THEN
+        RAISE EXCEPTION 'Akses Ditolak: Unauthorized Data Access.';
+    END IF;
+
+    RETURN QUERY
+    WITH monthly_flows AS (
+        SELECT to_char(date_trunc('month', date), 'YYYY-MM') AS m_year,
+               SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) AS net_flow
+        FROM public.transactions
+        WHERE user_id = user_id_param AND deleted_at IS NULL
+        GROUP BY 1
+    )
+    SELECT m_year, SUM(net_flow) OVER (ORDER BY m_year ASC) AS cumulative_balance
+    FROM monthly_flows ORDER BY m_year ASC;
+END;
+$$ LANGUAGE plpgsql; -- SECURITY DEFINER DIHAPUS
+
+CREATE OR REPLACE FUNCTION get_budget_predictive_analysis(user_id_param UUID)
+RETURNS TABLE(
+    category_name TEXT, budget_limit NUMERIC, current_spent NUMERIC,
+    days_elapsed INT, days_in_month INT, burn_rate_per_day NUMERIC,
+    projected_end_spent NUMERIC, is_anomaly BOOLEAN, ai_warning_message TEXT
+) AS $$
+DECLARE
+    start_of_month TIMESTAMPTZ; current_time_wib TIMESTAMPTZ;
+    total_days INT; elapsed_days INT;
+BEGIN
+    IF user_id_param != auth.uid() THEN
+        RAISE EXCEPTION 'Akses Ditolak: Unauthorized Data Access.';
+    END IF;
+
+    current_time_wib := NOW() AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Jakarta';
+    start_of_month   := date_trunc('month', current_time_wib);
+    total_days       := EXTRACT(DAY FROM (date_trunc('month', current_time_wib) + INTERVAL '1 month' - INTERVAL '1 day'));
+    elapsed_days     := EXTRACT(DAY FROM current_time_wib);
+    IF elapsed_days = 0 THEN elapsed_days := 1; END IF;
+
+    RETURN QUERY
+    WITH current_month_expenses AS (
+        SELECT c.name AS cat_name, c.budget_limit AS limit_amt, SUM(t.amount) AS spent_amt
+        FROM public.transactions t
+        JOIN public.categories c ON t.category_id = c.id
+        WHERE t.user_id = user_id_param AND t.deleted_at IS NULL 
+          AND t.type = 'expense' AND t.date >= start_of_month AND c.budget_limit > 0
+        GROUP BY c.name, c.budget_limit
+    )
+    SELECT 
+        cat_name::TEXT, limit_amt::NUMERIC, spent_amt::NUMERIC,
+        elapsed_days::INT, total_days::INT,
+        (spent_amt / elapsed_days)::NUMERIC AS burn_rate_per_day,
+        ((spent_amt / elapsed_days) * total_days)::NUMERIC AS projected_end_spent,
+        (((spent_amt / elapsed_days) * total_days) > limit_amt)::BOOLEAN AS is_anomaly,
+        CASE 
+            WHEN ((spent_amt / elapsed_days) * total_days) > limit_amt THEN
+                'Peringatan Kritis! Anggaran kategori ' || cat_name || ' diproyeksikan akan membengkak.'
+            WHEN (spent_amt / limit_amt) >= 0.5 AND elapsed_days <= (total_days * 0.3) THEN
+                'Anomali Terdeteksi: Anda telah menghabiskan > 50% anggaran ' || cat_name || ' terlalu cepat.'
+            ELSE
+                'Anggaran aman. Pola konsumsi Anda stabil.'
+        END::TEXT AS ai_warning_message
+    FROM current_month_expenses;
+END;
+$$ LANGUAGE plpgsql; -- SECURITY DEFINER DIHAPUS
+
+-- Flush Cache Skema
+NOTIFY pydantic_supabase_admin_pgrst, 'reload schema';
+
+CREATE POLICY "Users can manage their own transactions" 
+    ON public.transactions 
+    FOR ALL 
+    USING (auth.uid() = user_id)
+    WITH CHECK (
+        auth.uid() = user_id AND 
+        EXISTS (
+            SELECT 1 FROM public.categories c 
+            WHERE c.id = category_id AND c.user_id = auth.uid()
+        )
+    );
+
+-- 1. Hapus jadwal dengan nama yang salah
+SELECT cron.unschedule('eksekusi-otomasi-harian-eazytah');
+
+-- 2. Buat jadwal baru dengan nama yang benar
+SELECT cron.schedule('eksekusi-otomasi-harian-managjeh', '0 17 * * *', 'SELECT process_recurring_schedules();');
+
+-- Memperbaiki data lama yang kosong agar tidak error
+UPDATE public.accounts SET type = 'bank' WHERE type IS NULL;
+
+-- Mengunci kolom agar tidak bisa disisipkan nilai null di masa depan
+ALTER TABLE public.accounts ALTER COLUMN type SET NOT NULL;

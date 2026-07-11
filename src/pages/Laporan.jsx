@@ -70,8 +70,8 @@ export default function Laporan() {
     enabled: !!user?.id,
     staleTime: 1000 * 60 * 3, // Bertahan di memori selama 3 menit
     queryFn: async () => {
-      const startDate = new Date(Date.UTC(currentYear, currentMonth, 1, 0, 0, 0)).toISOString();
-      const endDate = new Date(Date.UTC(currentYear, currentMonth + 1, 0, 23, 59, 59, 999)).toISOString();
+      const startDate = new Date(currentYear, currentMonth, 1, 0, 0, 0).toISOString();
+      const endDate = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999).toISOString();
 
       const { data, error } = await supabase
         .from('transactions')
@@ -127,7 +127,7 @@ export default function Laporan() {
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.setAttribute('download', `Laporan_Keuangan_EazyTah_${monthNames[currentMonth]}_${currentYear}.csv`);
+    link.setAttribute('download', `Laporan_Keuangan_ManagJeh_${monthNames[currentMonth]}_${currentYear}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

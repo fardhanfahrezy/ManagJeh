@@ -1,15 +1,21 @@
 /**
  * Format angka menjadi standar Rupiah (IDR)
- * Menangani edge case null/undefined dan mencegah error parsing.
+ * Mencegah kebocoran type coercion JavaScript secara ketat.
  */
 export const formatIDR = (num) => {
-  if (num === null || num === undefined || isNaN(num)) return 'Rp 0';
+  // Parsing eksplisit dan validasi ketat
+  const parsedNum = Number(num);
+  
+  if (num === null || num === undefined || typeof num === 'boolean' || num === '' || Number.isNaN(parsedNum)) {
+    return 'Rp 0';
+  }
+  
   return new Intl.NumberFormat('id-ID', { 
     style: 'currency', 
     currency: 'IDR', 
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
-  }).format(num);
+  }).format(parsedNum);
 };
 
 /**
@@ -17,7 +23,11 @@ export const formatIDR = (num) => {
  */
 export const formatDate = (dateString) => {
   if (!dateString) return '-';
-  return new Date(dateString).toLocaleDateString('id-ID', { 
+  
+  const dateObj = new Date(dateString);
+  if (Number.isNaN(dateObj.getTime())) return '-';
+
+  return dateObj.toLocaleDateString('id-ID', { 
     day: 'numeric', 
     month: 'long', 
     year: 'numeric' 

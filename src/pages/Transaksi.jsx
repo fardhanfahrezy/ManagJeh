@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
-import { saveTransactionOffline } from '../lib/db';
+import { queueOfflineAction } from '../lib/db';
 import { Loader2, Settings2 } from 'lucide-react';
 import Kategori from '../components/Kategori'; 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -90,7 +90,7 @@ export default function Transaksi() {
   const transactionMutation = useMutation({
     networkMode: 'always', // Memaksa TanStack Query tetap mengeksekusi mutationFn meski offline
     mutationFn: async (payload) => {
-      // 1. Pastikan setiap transaksi memiliki UUID final sejak awal (Offline-First Best Practice)
+      // 1. Pastikan setiap transaksi memiliki UUID final sejak awal 
       const finalPayload = {
         ...payload,
         id: payload.id || crypto.randomUUID(),
@@ -98,7 +98,8 @@ export default function Transaksi() {
       };
 
       if (!navigator.onLine) {
-        await saveTransactionOffline(finalPayload);
+        // PERBAIKAN: Gunakan finalPayload.id dan finalPayload, BUKAN payload mentah
+        await queueOfflineAction('INSERT', finalPayload.id, finalPayload);
         return 'offline';
       }
 

@@ -13,7 +13,7 @@ const Logo = () => (
   <div className="flex items-center pl-1">
     <img
       src="/logo.svg" 
-      alt="EazyTah Logo"
+      alt="ManagJeh Logo"
       className="h-6 md:h-7 w-auto flex-shrink-0 object-contain"
       width="120"
       height="28"
@@ -59,7 +59,7 @@ export default function Layout() {
   };
 
   const navLinks = [
-    { name: 'Dashboard', path: '/', icon: Home },
+    { name: 'Dashboard', path: '/dashboard', icon: Home },
     { name: 'Dompet & Akun', path: '/akun', icon: Wallet },
     { name: 'Transaksi', path: '/transaksi', icon: PlusCircle },
     { name: 'Laporan', path: '/laporan', icon: PieChart },

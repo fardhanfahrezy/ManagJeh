@@ -1,19 +1,34 @@
+import { useEffect } from 'react';
+
 export default function ModalConfirm({ isOpen, title, message, onConfirm, onCancel, confirmText = "Ya, Hapus", danger = true }) {
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isOpen) onCancel();
+    };
+    
+    if (isOpen) {
+      document.addEventListener('keydown', handleEscape);
+    }
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isOpen, onCancel]);
+
   if (!isOpen) return null;
 
   return (
-    // Tambahkan onClick={onCancel} di backdrop gelap ini
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4 transition-opacity animate-in fade-in duration-200"
-      onClick={onCancel} 
+      onClick={onCancel}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+      aria-describedby="modal-description"
     >
-      {/* Tambahkan e.stopPropagation() agar klik di dalam kotak putih TIDAK menutup modal */}
       <div 
         className="bg-white p-6 rounded-3xl shadow-xl max-w-sm w-full animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()} 
       >
-        {title && <h3 className="text-lg font-bold text-slate-900 mb-2">{title}</h3>}
-        <p className="text-sm text-slate-500 mb-6 leading-relaxed">{message}</p>
+        {title && <h3 id="modal-title" className="text-lg font-bold text-slate-900 mb-2">{title}</h3>}
+        <p id="modal-description" className="text-sm text-slate-500 mb-6 leading-relaxed">{message}</p>
         
         <div className="flex justify-end gap-3">
           <button

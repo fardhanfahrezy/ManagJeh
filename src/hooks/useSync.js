@@ -3,55 +3,88 @@ import { supabase } from '../lib/supabase';
 import { localDB } from '../lib/db';
 import { useQueryClient } from '@tanstack/react-query';
 
-export function useSync() {
+export function useSync(userId) {
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const syncOfflineData = async () => {
+    if (!userId) return;
+
+    const processActionQueue = async () => {
       if (!navigator.onLine) return;
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
       try {
-        const unsyncedTransactions = await localDB.transactions
-          .where('synced')
-          .equals(0)
-          .toArray();
+        // PERBAIKAN A: Hanya ambil antrean milik pengguna yang sedang login
+        // Memerlukan migrasi db.js (localDB.version(3)) yang sudah kita bahas sebelumnya
+        const queue = await localDB.action_queue
+          .where('user_id')
+          .equals(userId)
+          .sortBy('id');
 
-        if (unsyncedTransactions.length === 0) return;
+        if (queue.length === 0) return;
 
-        // Persiapkan payload untuk Batch Insert (mengamputasi loop request)
-        const payloads = unsyncedTransactions.map(tx => {
-          const { local_id, synced, user_id, ...rest } = tx;
-          return rest;
-        });
+        let processedIds = [];
+        let failedIds = [];
 
-        // Ubah logika di useSync.js
-        const { error } = await supabase
-          .from('transactions')
-          .upsert(payloads, { onConflict: 'id' });
-        // Data baru akan di-insert, data lama akan di-update
+        for (const item of queue) {
+          let error = null;
 
-        if (!error) {
-          // Bersihkan localDB berdasarkan array id yang berhasil
-          const localIds = unsyncedTransactions.map(tx => tx.local_id);
-          await localDB.transactions.bulkDelete(localIds);
+          if (item.action === 'INSERT' || item.action === 'UPDATE') {
+            const safePayload = { ...item.payload, user_id: userId };
+            const { error: upsertError } = await supabase
+              .from('transactions')
+              .upsert([safePayload], { onConflict: 'id' });
+            error = upsertError;
+          } 
+          else if (item.action === 'DELETE') {
+            const { error: deleteError } = await supabase
+              .from('transactions')
+              .update({ deleted_at: new Date().toISOString() })
+              .eq('id', item.entity_id)
+              .eq('user_id', userId);
+            error = deleteError;
+          }
 
-          // Invalidate cache TanStack Query secara global sebagai pengganti custom Event Bus
-          queryClient.invalidateQueries();
-          console.log(`[PWA Sync] ${payloads.length} entri disinkronkan via Batch Insert.`);
-        } else {
-          throw error;
+          // PERBAIKAN B: Klasifikasi Error untuk mencegah Deadlocked Queue
+          if (!error) {
+            processedIds.push(item.id);
+          } else {
+            // Deteksi apakah ini error koneksi/server down (5xx)
+            const isNetworkIssue = error.message?.toLowerCase().includes('fetch') || 
+                                   error.code?.startsWith('5');
+            
+            if (isNetworkIssue) {
+              console.warn(`[Sync] Jaringan tidak stabil, menghentikan antrean di ID ${item.id}.`);
+              break; // Hentikan loop, coba lagi nanti saat online
+            } else {
+              // Jika ini Error Validasi (23514) atau RLS (42501), data ini cacat permanen.
+              console.error(`[Sync] Data cacat/ditolak server (ID: ${item.id}). Dihapus dari antrean agar tidak macet:`, error.message);
+              failedIds.push(item.id); // Catat untuk dibuang
+            }
+          }
         }
+
+        // Gabungkan ID yang berhasil dan yang cacat permanen untuk dibersihkan dari IndexedDB
+        const idsToRemove = [...processedIds, ...failedIds];
+
+        if (idsToRemove.length > 0) {
+          await localDB.action_queue.bulkDelete(idsToRemove);
+          
+          queryClient.invalidateQueries({ queryKey: ['dashboardData', userId] });
+          queryClient.invalidateQueries({ queryKey: ['accounts', userId] });
+          queryClient.invalidateQueries({ queryKey: ['reportTransactions', userId] });
+          
+          console.info(`[Sync Engine] Selesai. Sukses: ${processedIds.length}. Dibuang (Cacat): ${failedIds.length}.`);
+        }
+
       } catch (err) {
-        console.error('[PWA Sync] Kegagalan batch sinkronisasi:', err.message);
+        console.error('[Sync Engine] Kesalahan fatal pada pemrosesan antrean:', err.message);
       }
     };
 
-    window.addEventListener('online', syncOfflineData);
-    syncOfflineData();
+    window.addEventListener('online', processActionQueue);
+    // Jalankan sekali saat mount (jika sudah online)
+    if (navigator.onLine) processActionQueue();
 
-    return () => window.removeEventListener('online', syncOfflineData);
-  }, [queryClient]);
+    return () => window.removeEventListener('online', processActionQueue);
+  }, [userId, queryClient]);
 }

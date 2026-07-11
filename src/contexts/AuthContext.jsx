@@ -2,40 +2,45 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
 // Inisialisasi Context
-const AuthContext = createContext({});
+const AuthContext = createContext({user: null, loading: true});
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true); // Mencegah kedipan UI (FOUC) saat inisialisasi
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Ambil sesi saat aplikasi pertama kali dimuat
-    const getSession = async () => {
-      try {
-        const { data: { session }, error } = await supabase.auth.getSession();
-        if (error) throw error;
-        setUser(session?.user ?? null);
-      } catch (error) {
-        console.error('Auth Init Error:', error.message);
-      } finally {
+    let isMounted = true;
+
+    // EVENT LISTENER: Penanganan sesi kedaluwarsa dari queryClient
+    const handleSessionExpired = async () => {
+      if (isMounted) {
+        await supabase.auth.signOut();
+        setUser(null);
         setLoading(false);
+        // Pembersihan hard-refresh untuk memastikan memori Javascript kosong
+        window.location.replace('/login'); 
       }
     };
 
+    window.addEventListener('session-expired', handleSessionExpired);
+
+    const getSession = async () => { /* ... kode getSession sebelumnya tetap sama ... */ };
     getSession();
 
-    // 2. Pasang pendengar (listener) untuk perubahan status autentikasi (Login/Logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      if (isMounted) {
+          setUser(session?.user ?? null);
+          setLoading(false);
+      }
     });
 
-    // Pembersihan memori (Mencegah Memory Leak)
     return () => {
+      isMounted = false;
       subscription?.unsubscribe();
+      window.removeEventListener('session-expired', handleSessionExpired);
     };
   }, []);
 
-  // Hanya render children (komponen anak) jika proses verifikasi sesi selesai
   return (
     <AuthContext.Provider value={{ user, loading }}>
       {!loading && children}

@@ -3,155 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Finance Animation</title>
-    <!-- GSAP Core CDN -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-    
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
-        body { background-color: #f8fafc; display: flex; height: 100vh; overflow: hidden; }
-
-        /* Mockup Sidebar Kiri - Tetap Statis */
-        .sidebar { width: 80px; height: 100%; background: white; border-right: 1px solid #e2e8f0; }
-
-        /* Kontainer Utama */
-        .main-content { flex: 1; padding: 40px; overflow-y: auto; position: relative; }
-        .header { margin-bottom: 30px; }
-        .header h1 { font-size: 1.8rem; color: #0f172a; }
-        .header p { color: #64748b; font-size: 0.95rem; }
-
-        /* Grid Layout Sesuai Gambar Dasbor Anda */
-        .grid-container { 
-            display: grid; 
-            grid-template-columns: 2fr 1fr; 
-            gap: 24px; 
-            max-width: 1200px; 
-        }
-
-        /* Kartu Utama (Total Kekayaan Bersih) */
-        .main-card {
-            background: #0f172a; color: white; padding: 30px; border-radius: 24px;
-            position: relative; overflow: hidden; min-height: 200px;
-        }
-        .main-card h2 { font-size: 0.85rem; color: #94a3b8; letter-spacing: 1px; }
-        .main-card .balance { font-size: 2.5rem; font-weight: 700; margin: 15px 0; }
-        
-        /* SVG Gelombang Pulsa di Background Kartu Utama */
-        .wave-bg {
-            position: absolute; bottom: 0; right: 0; width: 60%; height: 100%;
-            opacity: 0.15; pointer-events: none;
-        }
-
-        /* Kartu Pendukung (Putih/Soft Blue) */
-        .card { background: white; padding: 24px; border-radius: 24px; border: 1px solid #e2e8f0; }
-        .card.analitik-ai { background: #f0f4ff; border: none; }
-        .card h3 { font-size: 1rem; color: #1e293b; margin-bottom: 15px; }
-
-        /* Tombol CTA Biru Kanan Bawah */
-        .fab-button {
-            position: fixed; bottom: 40px; right: 40px;
-            width: 60px; height: 60px; background: #2563eb;
-            border-radius: 50%; display: flex; align-items: center; justify-content: center;
-            color: white; font-size: 1.8rem; border: none; cursor: pointer;
-            box-shadow: 0 10px 15px -3px rgba(37, 99, 235, 0.4);
-        }
-    </style>
+    <title>SmartNest - Login</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <main class="auth-container">
+        <!-- Brand Header -->
+        <header class="auth-header">
+            <h1 class="brand-name">SmartNest</h1>
+        </header>
 
-    <!-- Sidebar Statis -->
-    <div class="sidebar"></div>
+        <!-- Auth Card -->
+        <section class="auth-card">
+            <h2 class="card-title">Welcome to<br>SmartNest login now!</h2>
 
-    <!-- Area Konten Utama yang Dianimasikan -->
-    <div class="main-content">
-        <div class="header" id="dashHeader">
-            <h1>Kecerdasan Finansial</h1>
-            <p>Ringkasan aset, distribusi dompet, dan analisis cerdas.</p>
-        </div>
+            <form action="/api/login" method="POST" class="auth-form" id="loginForm">
+                <!-- Email Input -->
+                <div class="input-group">
+                    <label for="email">Email</label>
+                    <input type="email" id="email" name="email" placeholder="joedoe75@gmail.com" required autocomplete="email">
+                </div>
 
-        <div class="grid-container">
-            <!-- 1. Kartu Utama -->
-            <div class="main-card" id="mainCard">
-                <h2>TOTAL KEKAYAAN BERSIH</h2>
-                <!-- Berikan ID khusus pada angka untuk efek kalkulasi otomatis -->
-                <div class="balance" id="netWorthAmount">-Rp 0</div>
-                <p style="color: #10b981;">Kas & Likuid: Rp 19.616</p>
-                
-                <!-- Grafik Garis SVG -->
-                <svg class="wave-bg" viewBox="0 0 200 100" preserveAspectRatio="none">
-                    <path id="pulseLine" d="M0,50 Q30,20 60,50 T120,50 T180,20 L200,80" 
-                          fill="none" stroke="#ffffff" stroke-width="3" />
-                </svg>
+                <!-- Password Input -->
+                <div class="input-group">
+                    <label for="password">Password</label>
+                    <div class="password-wrapper">
+                        <input type="password" id="password" name="password" placeholder="••••••••" required autocomplete="current-password">
+                        <button type="button" class="toggle-password" aria-label="Toggle password visibility">
+                            <!-- SVG Eye Icon Crossed (Simplified) -->
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path><line x1="1" y1="1" x2="23" y2="23"></line></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Form Options -->
+                <div class="form-options">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="remember">
+                        <span class="checkbox-text">Remember me</span>
+                    </label>
+                    <a href="/forgot-password" class="forgot-link">Forget password?</a>
+                </div>
+
+                <!-- Submit Action -->
+                <button type="submit" class="btn-primary">Login</button>
+            </form>
+
+            <!-- Social Login -->
+            <div class="social-login">
+                <p class="social-text">Or Sign in with</p>
+                <div class="social-buttons">
+                    <button type="button" class="btn-social" aria-label="Sign in with Facebook">
+                        <span class="icon-facebook">F</span>
+                    </button>
+                    <button type="button" class="btn-social" aria-label="Sign in with Google">
+                        <span class="icon-google">G</span>
+                    </button>
+                    <button type="button" class="btn-social" aria-label="Sign in with Apple">
+                        <span class="icon-apple">A</span>
+                    </button>
+                </div>
             </div>
-
-            <!-- 2. Kartu Portofolio (Kanan Atas) -->
-            <div class="card support-card" id="cryptoCard">
-                <h3 style="color: #64748b; font-size: 0.8rem;">PORTOFOLIO INVESTASI</h3>
-                <p style="font-size: 1.8rem; font-weight: 700;">Rp 0</p>
-            </div>
-
-            <!-- 3. Kartu Distribusi Saldo (Kiri Bawah) -->
-            <div class="card support-card" id="balanceCard">
-                <h3>Distribusi Saldo</h3>
-                <p style="color: #64748b;">Tabungan, E-Wallet, dan Bank</p>
-            </div>
-
-            <!-- 4. Kartu Analisis AI (Kanan Bawah) -->
-            <div class="card support-card analitik-ai" id="aiCard">
-                <h3 style="color: #2563eb;">Analisis Proaktif AI</h3>
-                <p style="font-size: 0.9rem; color: #64748b;">Semua kategori pengeluaran terpantau aman.</p>
-            </div>
-        </div>
-
-        <!-- Tombol Tambah (+) -->
-        <button class="fab-button" id="fabBtn">+</button>
-    </div>
-
-    <script>
-        document.addEventListener("DOMContentLoaded", () => {
-            
-            // 1. Inisialisasi SVG stroke-dash untuk efek menggambar diri sendiri
-            const pulseLine = document.getElementById("pulseLine");
-            const length = pulseLine.getTotalLength();
-            pulseLine.style.strokeDasharray = length;
-            pulseLine.style.strokeDashoffset = length;
-
-            // 2. Buat Timeline GSAP (Koreografi Utama)
-            const tl = gsap.timeline({ defaults: { ease: "power4.out" } });
-
-            tl
-              // A. Header memudar masuk secara halus dari atas
-              .from("#dashHeader", { opacity: 0, y: -20, duration: 0.6 })
-
-              // B. Kartu Utama mendarat dengan efek Kedalaman Asimetris (Scale dari besar ke normal)
-              .from("#mainCard", { scale: 1.08, opacity: 0, duration: 0.8 }, "-=0.3")
-
-              // C. Animasi Menggambar Garis Gelombang SVG secara bersamaan
-              .to(pulseLine, { strokeDashoffset: 0, duration: 1.2, ease: "power2.inOut" }, "-=0.6")
-
-              // D. Efek Menghitung Angka (Kalkulasi Otomatis dari 0 ke Angka Asli)
-              .to("#netWorthAmount", {
-                  innerText: 580384, // Target angka murni
-                  duration: 1.5,
-                  ease: "power3.out",
-                  snap: { innerText: 1 }, // Memastikan angka bulat selama bertambah
-                  modifiers: {
-                      innerText: function(value) {
-                          // Format kembali menjadi string mata uang Rupiah
-                          return "-Rp " + Math.floor(value).toLocaleString('id-ID');
-                      }
-                  }
-              }, "-=1.2")
-
-              // E. Kartu-kartu Pendukung muncul berurutan (Cascading/Staggered)
-              // Kami menggeser koordinat X dan Y secara acak tipis agar tidak monoton dari bawah semua
-              .from("#cryptoCard", { opacity: 0, x: 30, duration: 0.6 }, "-=0.8")
-              .from("#balanceCard", { opacity: 0, x: -30, duration: 0.6 }, "-=0.6")
-              .from("#aiCard", { opacity: 0, y: 30, duration: 0.6 }, "-=0.5")
-
-              // F. Terakhir, Tombol Aksi Utama (+) muncul dengan efek Pop-In (Elastic Back)
-              .from("#fabBtn", { scale: 0, opacity: 0, duration: 0.5, ease: "back.out(1.7)" }, "-=0.3");
-        });
-    </script>
+        </section>
+    </main>
 </body>
 </html>

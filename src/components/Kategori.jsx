@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, Trash2, AlertCircle, CheckCircle, Loader2 } from 'lucide-react';
@@ -6,7 +7,7 @@ import ModalConfirm from './ModalConfirm';
 
 export default function Kategori({ isOpen, onClose, type, categories }) {
   const queryClient = useQueryClient();
-
+  const { user } = useAuth();
   const [newCatName, setNewCatName] = useState('');
   const [newCatColor, setNewCatColor] = useState('#3B82F6');
   const [newCatBudget, setNewCatBudget] = useState('');
@@ -29,8 +30,8 @@ export default function Kategori({ isOpen, onClose, type, categories }) {
     },
     onSuccess: () => {
       // Segarkan data master (akun & kategori) di semua komponen
-      queryClient.invalidateQueries({ queryKey: ['masterData'] });
-      queryClient.invalidateQueries({ queryKey: ['masterDataOtomasi'] });
+      queryClient.invalidateQueries({ queryKey: ['masterData', user?.id] });
+      queryClient.invalidateQueries({ queryKey: ['masterDataOtomasi', user?.id] });
       setCatMessage({ type: 'success', text: 'Kategori berhasil ditambahkan.' });
       setNewCatName('');
       setNewCatBudget('');
