@@ -1,3 +1,4 @@
+// src/lib/utils.js
 /**
  * Format angka menjadi standar Rupiah (IDR)
  * Mencegah kebocoran type coercion JavaScript secara ketat.

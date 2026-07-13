@@ -1,3 +1,4 @@
+// src/components/GlobalErrorToast.jsx:
 import { useState, useEffect, useRef } from 'react';
 import { AlertCircle, X, CheckCircle } from 'lucide-react';
 

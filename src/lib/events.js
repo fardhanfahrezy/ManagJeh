@@ -1,3 +1,4 @@
+// src/lib/events.js
 /**
  * Arsitektur Event Bus Ringan untuk Sinkronisasi State Lintas Halaman
  * Menghindari re-fetching Supabase API secara berlebihan.

@@ -1,3 +1,4 @@
+// src/components/Layout.jsx:
 import { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';

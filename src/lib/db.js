@@ -1,3 +1,4 @@
+// src/lib/db.js
 import Dexie from 'dexie';
 
 export const localDB = new Dexie('ManagjehOfflineDB');

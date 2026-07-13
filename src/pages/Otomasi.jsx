@@ -1,3 +1,4 @@
+// src/pages/Otomasi.jsx:
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
 import { Loader2, CalendarClock, Trash2, Repeat, CheckCircle, AlertCircle } from 'lucide-react';

@@ -1,3 +1,4 @@
+// src/lib/errorHandler.js
 /**
  * Menerjemahkan kode error mentah dari Supabase/PostgreSQL 
  * menjadi pesan UI yang ramah pengguna.

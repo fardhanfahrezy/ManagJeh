@@ -1,90 +1,221 @@
-import { useEffect } from 'react';
+// src/hooks/useSync.js
+import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { localDB } from '../lib/db';
 import { useQueryClient } from '@tanstack/react-query';
 
+// --- CONFIGURATION ---
+const DEFAULT_BATCH_SIZE = 30;
+const MAX_RETRIES = 3;
+const MAX_SYNC_ATTEMPTS = 10; // Batas absolut sebelum transaksi dinyatakan cacat permanen (DLQ)
+
+// --- HELPER: Network Error Detector ---
+const isNetworkError = (err) => {
+  if (!err) return false;
+  const msg = err.message?.toLowerCase() || '';
+  const code = String(err.code || '');
+  const status = Number(err.status || 0);
+
+  if (msg.includes('fetch') || msg.includes('network') || msg.includes('abort') || 
+      msg.includes('timeout') || msg.includes('econnreset') || msg.includes('domexception')) return true;
+  if (status === 408 || status === 429 || status >= 500) return true;
+  if (['PGRST000', 'PGRST003', 'PGRST301'].includes(code)) return true;
+  
+  return false;
+};
+
+// --- HELPER: Abortable Sleep ---
+const abortableSleep = (ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(new Error('SYNC_ABORTED'));
+  const timer = setTimeout(resolve, ms);
+  signal?.addEventListener('abort', () => {
+    clearTimeout(timer);
+    reject(new Error('SYNC_ABORTED'));
+  }, { once: true });
+});
+
+// --- HELPER: Queue Compaction (The Game Changer) ---
+// Menyusutkan antrean: INSERT+UPDATE -> INSERT, INSERT+DELETE -> Batal
+const compactQueue = (queue) => {
+  const compactedMap = new Map();
+  const redundantIds = [];
+
+  for (const item of queue) {
+    const existing = compactedMap.get(item.entity_id);
+
+    if (!existing) {
+      compactedMap.set(item.entity_id, { ...item });
+      continue;
+    }
+
+    // Resolusi Konflik Internal (Self-Healing Queue)
+    if (existing.action === 'INSERT' && item.action === 'UPDATE') {
+      existing.payload = { ...existing.payload, ...item.payload };
+      redundantIds.push(item.id); 
+    } else if (existing.action === 'INSERT' && item.action === 'DELETE') {
+      redundantIds.push(existing.id, item.id); // Keduanya dibatalkan
+      compactedMap.delete(item.entity_id);
+    } else if (existing.action === 'UPDATE' && item.action === 'UPDATE') {
+      existing.payload = { ...existing.payload, ...item.payload };
+      redundantIds.push(item.id);
+    } else if (existing.action === 'UPDATE' && item.action === 'DELETE') {
+      existing.action = 'DELETE';
+      existing.payload = null;
+      redundantIds.push(item.id);
+    } else {
+      // Skenario tidak standar, simpan iterasi terbaru
+      compactedMap.set(item.entity_id, { ...item });
+    }
+  }
+
+  return { compactedQueue: Array.from(compactedMap.values()), redundantIds };
+};
+
 export function useSync(userId) {
   const queryClient = useQueryClient();
+  const isSyncing = useRef(false);
 
   useEffect(() => {
     if (!userId) return;
+    const abortController = new AbortController();
 
     const processActionQueue = async () => {
-      if (!navigator.onLine) return;
+      if (!navigator.onLine || isSyncing.current) return;
+      isSyncing.current = true;
+      const startTime = performance.now();
 
       try {
-        // PERBAIKAN A: Hanya ambil antrean milik pengguna yang sedang login
-        // Memerlukan migrasi db.js (localDB.version(3)) yang sudah kita bahas sebelumnya
-        const queue = await localDB.action_queue
-          .where('user_id')
-          .equals(userId)
-          .sortBy('id');
+        let loopCount = 0;
 
-        if (queue.length === 0) return;
+        while (true) {
+          if (abortController.signal.aborted) break;
+          loopCount++;
 
-        let processedIds = [];
-        let failedIds = [];
+          const rawQueue = await localDB.action_queue
+            .where('user_id')
+            .equals(userId)
+            .sortBy('id');
+            
+          // Filter item yang tidak cacat permanen
+          const activeQueue = rawQueue.filter(item => (item.sync_attempts || 0) < MAX_SYNC_ATTEMPTS);
+          
+          if (activeQueue.length === 0) break;
 
-        for (const item of queue) {
-          let error = null;
-
-          if (item.action === 'INSERT' || item.action === 'UPDATE') {
-            const safePayload = { ...item.payload, user_id: userId };
-            const { error: upsertError } = await supabase
-              .from('transactions')
-              .upsert([safePayload], { onConflict: 'id' });
-            error = upsertError;
-          } 
-          else if (item.action === 'DELETE') {
-            const { error: deleteError } = await supabase
-              .from('transactions')
-              .update({ deleted_at: new Date().toISOString() })
-              .eq('id', item.entity_id)
-              .eq('user_id', userId);
-            error = deleteError;
+          // 1. COMPACTION PHASE
+          const { compactedQueue, redundantIds } = compactQueue(activeQueue);
+          
+          if (redundantIds.length > 0) {
+            await localDB.action_queue.bulkDelete(redundantIds);
+            console.info(`[Sync] Compaction menghapus ${redundantIds.length} operasi redundan.`);
+            if (compactedQueue.length === 0) continue; // Cek queue baru
           }
 
-          // PERBAIKAN B: Klasifikasi Error untuk mencegah Deadlocked Queue
-          if (!error) {
-            processedIds.push(item.id);
-          } else {
-            // Deteksi apakah ini error koneksi/server down (5xx)
-            const isNetworkIssue = error.message?.toLowerCase().includes('fetch') || 
-                                   error.code?.startsWith('5');
-            
-            if (isNetworkIssue) {
-              console.warn(`[Sync] Jaringan tidak stabil, menghentikan antrean di ID ${item.id}.`);
-              break; // Hentikan loop, coba lagi nanti saat online
-            } else {
-              // Jika ini Error Validasi (23514) atau RLS (42501), data ini cacat permanen.
-              console.error(`[Sync] Data cacat/ditolak server (ID: ${item.id}). Dihapus dari antrean agar tidak macet:`, error.message);
-              failedIds.push(item.id); // Catat untuk dibuang
+          // 2. BATCH STRATEGY
+          const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+          const batchSize = (connection && connection.effectiveType === '4g') ? 100 : DEFAULT_BATCH_SIZE;
+          const chunk = compactedQueue.slice(0, batchSize);
+          
+          let processedIds = [];
+          let deadLetterItems = [];
+
+          const upserts = chunk.filter(item => item.action === 'INSERT' || item.action === 'UPDATE');
+          const deletes = chunk.filter(item => item.action === 'DELETE');
+
+          // --- UPSERT EXECUTION ---
+          if (upserts.length > 0) {
+            const payloads = upserts.map(item => ({ ...item.payload, user_id: userId }));
+            try {
+              let attempt = 0;
+              while (attempt < MAX_RETRIES) {
+                if (abortController.signal.aborted) throw new Error('SYNC_ABORTED');
+                attempt++;
+                // Injeksi AbortSignal ke Supabase Request
+                const { error } = await supabase.from('transactions').upsert(payloads, { onConflict: 'id' }).abortSignal(abortController.signal);
+                if (!error) break;
+                if (!isNetworkError(error) || attempt === MAX_RETRIES) throw error;
+                await abortableSleep(1000 * Math.pow(2, attempt), abortController.signal);
+              }
+              processedIds.push(...upserts.map(item => item.id));
+            } catch (bulkError) {
+              if (isNetworkError(bulkError) || bulkError.message === 'SYNC_ABORTED') throw bulkError;
+
+              // Fallback Serial Ops
+              for (const item of upserts) {
+                if (abortController.signal.aborted) throw new Error('SYNC_ABORTED');
+                try {
+                  const { error } = await supabase.from('transactions').upsert([{ ...item.payload, user_id: userId }], { onConflict: 'id' }).abortSignal(abortController.signal);
+                  if (error) throw error;
+                  processedIds.push(item.id);
+                } catch (singleErr) {
+                  if (isNetworkError(singleErr)) throw singleErr;
+                  deadLetterItems.push({ ...item, error: singleErr.message });
+                }
+              }
             }
           }
+
+          // --- DELETE EXECUTION (SERIAL) ---
+          for (const item of deletes) {
+            if (abortController.signal.aborted) throw new Error('SYNC_ABORTED');
+            try {
+              let attempt = 0;
+              while (attempt < MAX_RETRIES) {
+                if (abortController.signal.aborted) throw new Error('SYNC_ABORTED');
+                attempt++;
+                const { error } = await supabase.from('transactions').update({ deleted_at: new Date().toISOString() }).eq('id', item.entity_id).eq('user_id', userId).abortSignal(abortController.signal);
+                if (!error) break;
+                if (!isNetworkError(error) || attempt === MAX_RETRIES) throw error;
+                await abortableSleep(1000 * Math.pow(2, attempt), abortController.signal);
+              }
+              processedIds.push(item.id);
+            } catch (deleteErr) {
+              if (isNetworkError(deleteErr)) throw deleteErr;
+              deadLetterItems.push({ ...item, error: deleteErr.message });
+            }
+          }
+
+          // 3. CLEANUP & DLQ UPDATE
+          if (processedIds.length > 0) {
+            await localDB.action_queue.bulkDelete(processedIds);
+          }
+
+          if (deadLetterItems.length > 0) {
+            // Bulk update untuk Dead Letter Queue agar memori lokal tidak stres
+            const dlqUpdates = deadLetterItems.map(dead => ({
+              ...dead,
+              sync_status: 'failed',
+              sync_attempts: (dead.sync_attempts || 0) + 1,
+              last_error: dead.error,
+              last_attempt_at: new Date().toISOString()
+            }));
+            await localDB.action_queue.bulkPut(dlqUpdates);
+          }
+
+          // Cache update tanpa hard loading (Background Refetching)
+          if (processedIds.length > 0) {
+            queryClient.invalidateQueries({ queryKey: ['dashboardData', userId], refetchType: 'active' });
+            queryClient.invalidateQueries({ queryKey: ['accounts', userId], refetchType: 'active' });
+          }
+
+          // --- TELEMETRY ---
+          const endTime = performance.now();
+          console.info(`[Telemetry] Sync Chunk ${loopCount}: ${Math.round(endTime - startTime)}ms | Processed: ${processedIds.length} | DLQ: ${deadLetterItems.length}`);
         }
-
-        // Gabungkan ID yang berhasil dan yang cacat permanen untuk dibersihkan dari IndexedDB
-        const idsToRemove = [...processedIds, ...failedIds];
-
-        if (idsToRemove.length > 0) {
-          await localDB.action_queue.bulkDelete(idsToRemove);
-          
-          queryClient.invalidateQueries({ queryKey: ['dashboardData', userId] });
-          queryClient.invalidateQueries({ queryKey: ['accounts', userId] });
-          queryClient.invalidateQueries({ queryKey: ['reportTransactions', userId] });
-          
-          console.info(`[Sync Engine] Selesai. Sukses: ${processedIds.length}. Dibuang (Cacat): ${failedIds.length}.`);
-        }
-
       } catch (err) {
-        console.error('[Sync Engine] Kesalahan fatal pada pemrosesan antrean:', err.message);
+        if (err.message !== 'SYNC_ABORTED') {
+          console.warn('[Sync Engine] Dijeda karena jaringan/sistem:', err.message);
+        }
+      } finally {
+        isSyncing.current = false;
       }
     };
 
     window.addEventListener('online', processActionQueue);
-    // Jalankan sekali saat mount (jika sudah online)
     if (navigator.onLine) processActionQueue();
 
-    return () => window.removeEventListener('online', processActionQueue);
+    return () => {
+      abortController.abort(); // Langsung hentikan request Supabase dan Sleep jika unmounted
+      window.removeEventListener('online', processActionQueue);
+    };
   }, [userId, queryClient]);
 }

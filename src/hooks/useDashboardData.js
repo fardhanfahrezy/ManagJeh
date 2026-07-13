@@ -1,3 +1,4 @@
+// src/hooks/useDashboardData.js:
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../lib/supabase';
 import { generateBuckets, findBucket } from '../lib/dateUtils';

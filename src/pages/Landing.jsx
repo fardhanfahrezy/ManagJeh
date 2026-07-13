@@ -1,3 +1,4 @@
+// src/pages/Landing.jsx
 import { Link } from 'react-router-dom';
 import { ArrowRight,LayoutGrid, CheckCircle2, Sparkles, Activity, Wallet, WifiOff, Users, ShieldCheck, Lock, Zap, Server, Gauge, Database, CreditCard, PieChart, AlertCircle, BarChart3, TrendingUp } from 'lucide-react';
 

@@ -1,3 +1,4 @@
+// src/components/ModalConfirm.jsx:
 import { useEffect } from 'react';
 
 export default function ModalConfirm({ isOpen, title, message, onConfirm, onCancel, confirmText = "Ya, Hapus", danger = true }) {

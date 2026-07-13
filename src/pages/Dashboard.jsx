@@ -1,20 +1,33 @@
-import { useState, useEffect } from 'react';
+// src/pages/Dashboard.jsx
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { formatIDR } from '../lib/utils';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
-import { generateBuckets, findBucket, calculateStartDate } from '../lib/dateHelpers';
-import { Wallet, Activity, Landmark, Sparkles, AlertCircle, Eye, EyeOff, TrendingUp, ChevronDown, ChevronUp } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  CartesianGrid, Cell
+} from 'recharts';
+import {
+  Wallet, Activity, Landmark, Sparkles, AlertCircle,
+  Eye, EyeOff, TrendingUp, ChevronDown, ChevronUp
+} from 'lucide-react';
+// Pastikan baris ini ada di paling atas Dashboard.jsx
+import { 
+  calculateStartDate, 
+  generateBuckets, 
+  getGranularity, 
+  getBucketSearchKey 
+} from '../lib/dateUtils';
 import { useNavigate } from 'react-router-dom';
 
 // ==============================================================================
 // 1. PRESET FILTER ARUS KAS (Single Dropdown Config)
-// Ditambahkan di luar komponen agar tidak membebani memori saat re-render
 // ==============================================================================
 const CASH_FLOW_PRESETS = [
   { label: '7 Hari Terakhir', type: 'minggu', value: 1 },
   { label: '14 Hari Terakhir', type: 'minggu', value: 2 },
+  { label: '3 Bulan Terakhir', type: 'bulan', value: 3 },
   { label: '6 Bulan Terakhir', type: 'bulan', value: 6 },
   { label: '12 Bulan Terakhir', type: 'bulan', value: 12 },
   { label: '5 Tahun Terakhir', type: 'tahun', value: 5 },
@@ -25,7 +38,6 @@ const CASH_FLOW_PRESETS = [
 // ==============================================================================
 const DashboardSkeleton = () => (
   <div className="max-w-6xl mx-auto space-y-6 pb-12 px-4 md:px-0 animate-pulse w-full">
-    {/* Header */}
     <div className="flex justify-between items-end">
       <div className="space-y-3">
         <div className="h-8 bg-slate-200 rounded-xl w-48 md:w-64"></div>
@@ -33,44 +45,70 @@ const DashboardSkeleton = () => (
       </div>
       <div className="h-10 w-10 bg-slate-200 rounded-xl"></div>
     </div>
-
-    {/* Row 1 */}
     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
       <div className="md:col-span-8 bg-slate-900 rounded-3xl p-6 sm:p-8 flex flex-col justify-between min-h-[220px]">
-        <div><div className="h-4 bg-slate-800 rounded-lg w-40 mb-4"></div><div className="h-12 sm:h-14 bg-slate-800 rounded-2xl w-64 sm:w-80"></div></div>
-        <div className="mt-8 border-t border-slate-800 pt-5 flex justify-between"><div className="space-y-2"><div className="h-3 bg-slate-800 rounded-md w-24"></div><div className="h-6 bg-slate-800 rounded-lg w-32"></div></div></div>
+        <div>
+          <div className="h-4 bg-slate-800 rounded-lg w-40 mb-4"></div>
+          <div className="h-12 sm:h-14 bg-slate-800 rounded-2xl w-64 sm:w-80"></div>
+        </div>
+        <div className="mt-8 border-t border-slate-800 pt-5 flex justify-between">
+          <div className="space-y-2">
+            <div className="h-3 bg-slate-800 rounded-md w-24"></div>
+            <div className="h-6 bg-slate-800 rounded-lg w-32"></div>
+          </div>
+        </div>
       </div>
       <div className="md:col-span-4 bg-indigo-50 border border-indigo-100 rounded-3xl p-6 flex flex-col justify-center">
-        <div className="h-12 w-12 bg-indigo-100 rounded-2xl mb-4"></div><div className="h-4 bg-indigo-100 rounded-md w-32 mb-3"></div><div className="h-10 bg-indigo-100 rounded-xl w-48 mb-3"></div>
+        <div className="h-12 w-12 bg-indigo-100 rounded-2xl mb-4"></div>
+        <div className="h-4 bg-indigo-100 rounded-md w-32 mb-3"></div>
+        <div className="h-10 bg-indigo-100 rounded-xl w-48 mb-3"></div>
       </div>
     </div>
-
-    {/* Row 2 */}
     <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
       <div className="md:col-span-4 bg-white p-6 rounded-3xl border border-slate-200 h-[400px]">
         <div className="h-6 bg-slate-200 rounded-lg w-32 mb-6"></div>
-        <div className="space-y-4">{[1, 2, 3, 4].map(i => <div key={i} className="h-12 bg-slate-50 rounded-xl w-full"></div>)}</div>
+        <div className="space-y-4">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-12 bg-slate-50 rounded-xl w-full"></div>
+          ))}
+        </div>
       </div>
       <div className="md:col-span-8 bg-blue-50/50 p-6 rounded-3xl border border-blue-100 h-[400px]">
-        <div className="flex items-center gap-3 mb-6"><div className="h-10 w-10 bg-blue-200 rounded-xl"></div><div className="space-y-2"><div className="h-5 bg-blue-200 rounded-lg w-40"></div></div></div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">{[1, 2].map(i => <div key={i} className="h-32 bg-white rounded-2xl border border-slate-200"></div>)}</div>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="h-10 w-10 bg-blue-200 rounded-xl"></div>
+          <div className="space-y-2">
+            <div className="h-5 bg-blue-200 rounded-lg w-40"></div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[1, 2].map(i => (
+            <div key={i} className="h-32 bg-white rounded-2xl border border-slate-200"></div>
+          ))}
+        </div>
       </div>
     </div>
-
-    {/* Row 3 */}
     <div className="grid grid-cols-1 gap-6 mt-6">
       <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 h-[350px] flex flex-col">
-        <div className="flex flex-col sm:flex-row justify-between gap-4 mb-6"><div className="h-6 bg-slate-200 rounded-lg w-40"></div><div className="h-8 bg-slate-200 rounded-xl w-32"></div></div>
+        <div className="flex flex-col sm:flex-row justify-between gap-4 mb-6">
+          <div className="h-6 bg-slate-200 rounded-lg w-40"></div>
+          <div className="h-8 bg-slate-200 rounded-xl w-32"></div>
+        </div>
         <div className="flex-1 bg-slate-50 rounded-xl w-full"></div>
       </div>
       <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-200 flex flex-col">
-        <div className="flex justify-between mb-6"><div className="h-6 bg-slate-200 rounded-lg w-40"></div><div className="h-5 bg-slate-200 rounded-lg w-24"></div></div>
-        <div className="space-y-3">{[1, 2, 3].map(i => <div key={i} className="h-14 bg-slate-50 rounded-xl border border-slate-100 w-full"></div>)}</div>
+        <div className="flex justify-between mb-6">
+          <div className="h-6 bg-slate-200 rounded-lg w-40"></div>
+          <div className="h-5 bg-slate-200 rounded-lg w-24"></div>
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-14 bg-slate-50 rounded-xl border border-slate-100 w-full"></div>
+          ))}
+        </div>
       </div>
     </div>
   </div>
 );
-
 
 // ==============================================================================
 // 3. KOMPONEN UTAMA
@@ -78,21 +116,20 @@ const DashboardSkeleton = () => (
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  
+
   const [showBalances, setShowBalances] = useState(false);
   const [showDebtDetails, setShowDebtDetails] = useState(false);
-  const [cashFlowMode, setCashFlowMode] = useState('expense'); 
+  const [cashFlowMode, setCashFlowMode] = useState('expense');
 
-  // STATE FILTER ARUS KAS (Diperbaiki)
-  const [activeFilter, setActiveFilter] = useState(CASH_FLOW_PRESETS[3]); 
+  // STATE FILTER ARUS KAS (Tunggal)
+  const [activeFilter, setActiveFilter] = useState(CASH_FLOW_PRESETS[3]); // Default: 6 Bulan
   const [hoveredBarIndex, setHoveredBarIndex] = useState(null);
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['dashboardData', user?.id, activeFilter.type, activeFilter.value], 
+    queryKey: ['dashboardData', user?.id, activeFilter.type, activeFilter.value],
     enabled: !!user?.id,
     staleTime: 1000 * 60 * 5,
     queryFn: async () => {
-      
       const startIsoDate = calculateStartDate(activeFilter.type, activeFilter.value);
 
       const [statsRes, accountsRes, insightsRes, recentTxRes, flowTxRes] = await Promise.all([
@@ -101,7 +138,8 @@ export default function Dashboard() {
         supabase.rpc('get_budget_predictive_analysis', { user_id_param: user.id }),
         supabase.from('transactions')
           .select(`id, amount, type, date, description, categories (name), accounts!transactions_account_id_fkey (name)`)
-          .eq('user_id', user.id).is('deleted_at', null).order('date', { ascending: false }).limit(5),
+          .eq('user_id', user.id).is('deleted_at', null)
+          .order('date', { ascending: false }).limit(5),
         supabase.from('transactions')
           .select('amount, type, date')
           .eq('user_id', user.id)
@@ -109,36 +147,34 @@ export default function Dashboard() {
           .is('deleted_at', null)
       ]);
 
-      if (accountsRes.error) throw accountsRes.error;
-      if (statsRes.error) throw statsRes.error;
-      if (recentTxRes.error) throw recentTxRes.error; 
-      if (flowTxRes.error) throw flowTxRes.error;
+      // ⚡ Optimalisasi O(1) dengan HashMap
+      const { bucketList, bucketMap } = generateBuckets(activeFilter.type, activeFilter.value);
+      const granularity = getGranularity(activeFilter.type, activeFilter.value);
 
-      const buckets = generateBuckets(activeFilter.type, activeFilter.value);
-      
       if (flowTxRes.data) {
         flowTxRes.data.forEach(tx => {
           if (tx.type === 'transfer') return;
-          
-          const match = findBucket(buckets, tx.date, activeFilter.type);
+          const searchKey = getBucketSearchKey(tx.date, granularity);
+          const match = bucketMap.get(searchKey);
           if (match) {
-            const safeAmount = Number(tx.amount) || 0; 
+            const safeAmount = Number(tx.amount) || 0;
             if (tx.type === 'income') match.income += safeAmount;
             if (tx.type === 'expense') match.expense += safeAmount;
           }
         });
       }
-      
+
       return {
         stats: statsRes.data || { total_assets: 0, total_liabilities: 0, net_worth: 0 },
         accounts: accountsRes.data || [],
         aiInsights: insightsRes.data || [],
         recentTransactions: recentTxRes.data || [],
-        cashFlow: buckets 
+        cashFlow: bucketList // Array berurutan untuk Recharts
       };
     }
   });
 
+  // Hotkey N
   useEffect(() => {
     const handleKeyPress = (e) => {
       const active = document.activeElement;
@@ -154,23 +190,40 @@ export default function Dashboard() {
 
   const maskIDR = (num) => showBalances ? formatIDR(num) : 'Rp ••••••••••';
 
+  const liquidAssets = useMemo(() => {
+    if (!data?.accounts) return 0;
+    return data.accounts
+      .filter(a => ['bank', 'cash', 'e-wallet'].includes(a.type))
+      .reduce((acc, curr) => acc + curr.balance, 0);
+  }, [data?.accounts]);
+
+  const investmentAssets = useMemo(() => {
+    if (!data?.accounts) return 0;
+    return data.accounts
+      .filter(a => ['crypto', 'investment'].includes(a.type))
+      .reduce((acc, curr) => acc + curr.balance, 0);
+  }, [data?.accounts]);
+
+  const maxFlowValue = useMemo(() => {
+    if (!data?.cashFlow) return 1;
+    return Math.max(...data.cashFlow.map(d => cashFlowMode === 'income' ? d.income : d.expense), 1);
+  }, [data?.cashFlow, cashFlowMode]);
+
   if (isError) return <div className="text-center text-red-500 mt-10 font-bold" role="alert">Gagal memuat dasbor. Periksa koneksi Anda.</div>;
   if (isLoading) return <DashboardSkeleton />;
 
-  const liquidAssets = data.accounts.filter(a => ['bank', 'cash', 'e-wallet'].includes(a.type)).reduce((acc, curr) => acc + curr.balance, 0);
-  const investmentAssets = data.accounts.filter(a => ['crypto', 'investment'].includes(a.type)).reduce((acc, curr) => acc + curr.balance, 0);
   const totalDebt = data.stats.total_liabilities;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 pb-12 px-4 md:px-0">
-      
+
       {/* Header */}
       <div className="flex justify-between items-end">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Kecerdasan Finansial</h1>
           <p className="text-sm text-slate-500">Ringkasan aset, distribusi dompet, dan analisis cerdas.</p>
         </div>
-        <button 
+        <button
           onClick={() => setShowBalances(!showBalances)}
           className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-slate-200 transition-colors outline-none focus:ring-2 focus:ring-slate-300"
           title={showBalances ? 'Sembunyikan Saldo' : 'Tampilkan Saldo'}
@@ -183,22 +236,21 @@ export default function Dashboard() {
         {/* KARTU NET WORTH */}
         <div className="md:col-span-8 bg-slate-900 rounded-3xl p-6 sm:p-8 text-white flex flex-col justify-between relative overflow-hidden shadow-lg">
           <div>
-            <p className="text-slate-400 text-sm font-bold tracking-wider uppercase mb-2 flex items-center gap-2"><Wallet size={16}/> Total Kekayaan Bersih</p>
+            <p className="text-slate-400 text-sm font-bold tracking-wider uppercase mb-2 flex items-center gap-2"><Wallet size={16} /> Total Kekayaan Bersih</p>
             <h2 className="text-4xl sm:text-5xl font-black tracking-tighter">{maskIDR(data.stats.net_worth)}</h2>
           </div>
-          
           <div className="mt-8 border-t border-slate-700/50 pt-5 flex items-center justify-between relative z-10">
             <div>
-              <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1 flex items-center gap-1"><Landmark size={12}/> Kas & Likuid</p>
+              <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1 flex items-center gap-1"><Landmark size={12} /> Kas & Likuid</p>
               <p className="text-lg font-bold text-emerald-400">{maskIDR(liquidAssets)}</p>
             </div>
             {totalDebt > 0 && (
               <div className="text-right">
-                <button 
+                <button
                   onClick={() => setShowDebtDetails(!showDebtDetails)}
                   className="text-xs font-semibold text-slate-400 hover:text-white flex items-center gap-1 ml-auto outline-none transition-colors"
                 >
-                  Liabilitas {showDebtDetails ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                  Liabilitas {showDebtDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </button>
                 {showDebtDetails && <p className="text-sm font-bold text-red-400 mt-1">- {formatIDR(totalDebt)}</p>}
               </div>
@@ -272,17 +324,15 @@ export default function Dashboard() {
       {/* ==============================================================================
           FITUR ARUS KAS & AKTIVITAS (RECHARTS INTEGRATION)
           ============================================================================== */}
-      
       <div className="grid grid-cols-1 gap-6 mt-6">
         <div className="bg-white border border-slate-200 rounded-3xl p-4 sm:p-6 shadow-sm flex flex-col overflow-hidden w-full">
-          
+
           {/* Header & Filter Control */}
           <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6">
             <div className="w-full xl:w-auto">
               <h3 className="font-bold text-lg text-slate-900 mb-2">Arus Kas (Cash Flow)</h3>
-              
-              <select 
-                value={JSON.stringify(activeFilter)} 
+              <select
+                value={JSON.stringify(activeFilter)}
                 onChange={(e) => setActiveFilter(JSON.parse(e.target.value))}
                 className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-4 py-2 outline-none focus:ring-2 focus:ring-blue-500 font-bold text-slate-700 cursor-pointer w-full sm:w-auto transition-all"
               >
@@ -293,37 +343,35 @@ export default function Dashboard() {
                 ))}
               </select>
             </div>
-            
+
             <div className="bg-slate-100 p-1 rounded-xl flex text-xs font-bold w-full xl:w-auto">
-              <button 
+              <button
                 onClick={() => setCashFlowMode('income')}
                 className={`flex-1 sm:flex-none px-4 py-2 rounded-lg transition-all outline-none ${cashFlowMode === 'income' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
               >Pemasukan</button>
-              <button 
+              <button
                 onClick={() => setCashFlowMode('expense')}
                 className={`flex-1 sm:flex-none px-4 py-2 rounded-lg transition-all outline-none ${cashFlowMode === 'expense' ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
               >Pengeluaran</button>
             </div>
           </div>
-          
+
           {/* RECHARTS COMPONENT */}
           <div className="w-full h-[250px] mt-4">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
-                data={data.cashFlow} 
+              <BarChart
+                data={data.cashFlow}
                 margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                 onMouseLeave={() => setHoveredBarIndex(null)}
               >
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                
                 <XAxis
                   dataKey="label"
                   tick={{ fontSize: 11, fontWeight: 600, fill: '#94a3b8' }}
                   axisLine={false}
                   tickLine={false}
-                  interval="preserveStartEnd" 
+                  interval="preserveStartEnd"
                 />
-                
                 <YAxis
                   tick={{ fontSize: 10, fontWeight: 500, fill: '#94a3b8' }}
                   axisLine={false}
@@ -337,7 +385,6 @@ export default function Dashboard() {
                     return `Rp${v}`;
                   }}
                 />
-                
                 <Tooltip
                   cursor={{ fill: '#f8fafc' }}
                   content={({ active, payload }) => {
@@ -358,7 +405,6 @@ export default function Dashboard() {
                     return null;
                   }}
                 />
-                
                 <Bar
                   dataKey={cashFlowMode}
                   radius={[6, 6, 0, 0]}
@@ -369,13 +415,12 @@ export default function Dashboard() {
                   {data.cashFlow.map((entry, index) => {
                     const baseColor = cashFlowMode === 'income' ? '#10b981' : '#ef4444';
                     const isFocused = hoveredBarIndex === null || hoveredBarIndex === index;
-                    
                     return (
-                      <Cell 
-                        key={`cell-${index}`} 
+                      <Cell
+                        key={`cell-${index}`}
                         fill={baseColor}
                         fillOpacity={isFocused ? 1 : 0.3}
-                        className="transition-all duration-300 ease-out cursor-pointer" 
+                        className="transition-all duration-300 ease-out cursor-pointer"
                         onMouseEnter={() => setHoveredBarIndex(index)}
                       />
                     );
@@ -384,18 +429,16 @@ export default function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-
         </div>
       </div>
 
+      {/* SECTION AKTIVITAS TERBARU */}
       <div className="grid grid-cols-1 gap-6 mt-6">
         <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-hidden">
-          
           <div className="p-4 sm:p-6 border-b border-slate-100 flex items-center justify-between gap-4">
             <h3 className="font-bold text-lg text-slate-900">Aktivitas Terbaru</h3>
             <button className="text-sm font-bold text-blue-600 hover:text-blue-800 outline-none whitespace-nowrap">Lihat Semua</button>
           </div>
-          
           <div className="overflow-x-auto w-full">
             <table className="w-full text-left text-sm text-slate-500 min-w-[600px]">
               <thead className="bg-slate-50 text-xs uppercase font-bold text-slate-400">
@@ -433,10 +476,8 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
-
         </div>
       </div>
-
     </div>
   );
 }

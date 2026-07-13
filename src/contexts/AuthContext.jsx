@@ -1,66 +1,53 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+// src/contexts/AuthContext.jsx
+import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
 import { supabase } from '../lib/supabase';
+import { useQueryClient } from '@tanstack/react-query';
 
-// Inisialisasi Context
-const AuthContext = createContext({user: null, loading: true});
+const AuthContext = createContext({});
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  const signOut = useCallback(async () => {
+    // Hanya memanggil API. Pembersihan state dan cache dikoordinasikan oleh listener di bawah.
+    await supabase.auth.signOut().catch(err => console.error('[Auth] SignOut failed:', err.message));
+  }, []);
 
   useEffect(() => {
-    let isMounted = true;
-
-    // EVENT LISTENER: Penanganan sesi kedaluwarsa dari queryClient
-    const handleSessionExpired = async () => {
-      if (isMounted) {
-        await supabase.auth.signOut();
+    // 1. SETUP LISTENER TERLEBIH DAHULU (Menghindari Race Condition dengan getSession)
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') {
         setUser(null);
-        setLoading(false);
-        // Pembersihan hard-refresh untuk memastikan memori Javascript kosong
-        window.location.replace('/login'); 
-      }
-    };
-
-    window.addEventListener('session-expired', handleSessionExpired);
-
-    const getSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (isMounted) {
-          setUser(session?.user ?? null);
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error('[AuthContext] Error getting session:', error);
-        if (isMounted) setLoading(false);
-      }
-    };
- 
-    getSession();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (isMounted) {
-          setUser(session?.user ?? null);
-          setLoading(false);
+        // Single Source of Truth untuk pembersihan data finansial
+        queryClient.clear(); 
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        setUser(session?.user ?? null);
       }
     });
 
+    // 2. FETCH SESI AWAL
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        console.error('[Auth] Initial session fetch failed:', error.message);
+      }
+      setUser(session?.user ?? null);
+      setLoading(false); // Selesai loading, biarkan App.jsx yang mengatur UI
+    });
+
     return () => {
-      isMounted = false;
-      subscription?.unsubscribe();
-      window.removeEventListener('session-expired', handleSessionExpired);
+      authListener.subscription.unsubscribe();
     };
-  }, []);
+  }, [queryClient]);
+
+  const value = useMemo(() => ({ user, loading, signOut }), [user, loading, signOut]);
 
   return (
-    <AuthContext.Provider value={{ user, loading }}>
-      {!loading && children}
+    <AuthContext.Provider value={value}>
+      {children}
     </AuthContext.Provider>
   );
 };
 
-// Hook kustom untuk memperingkas pemanggilan context
-export const useAuth = () => {
-  return useContext(AuthContext);
-};
+export const useAuth = () => useContext(AuthContext);

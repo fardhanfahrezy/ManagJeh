@@ -1,3 +1,4 @@
+// src/lib/queryClient.js
 import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
 import { parseSupabaseError, triggerGlobalToast } from './errorHandler';
 

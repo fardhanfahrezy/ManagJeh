@@ -1,12 +1,17 @@
+// src/App.jsx:
 import { lazy, Suspense, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, QueryClientProvider } from '@tanstack/react-query';
 import { supabase } from './lib/supabase';
 import Auth from './pages/Auth';
+import { ToastProvider } from './contexts/ToastContext';
+import { ToastViewport } from './components/ToastViewport';
 import Layout from './components/Layout';
 import { useSync } from './hooks/useSync';
+import { SystemOrchestrator } from './providers/SystemOrchestrator';
 import { queryClient } from './lib/queryClient';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Lazy Load Pages
 const Landing = lazy(() => import('./pages/Landing'));
@@ -103,10 +108,19 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ToastProvider>
+          <BrowserRouter>
+            <AuthProvider>
+              <SystemOrchestrator>
+                <AppRoutes />
+                <ToastViewport /> {/* UI di-render di sini, terpisah dari state */}
+              </SystemOrchestrator>
+            </AuthProvider>
+          </BrowserRouter>
+        </ToastProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
