@@ -37,13 +37,8 @@ export default function Transaksi() {
   const handleTransactionSubmit = (payload, resetFormCallback) => {
     transactionMutation.mutate(payload, {
       onSuccess: (result) => {
-        const msg = result.status === 'offline' ? 'Tersimpan lokal (Offline Mode).' : 'Transaksi berhasil dicatat.';
-        showToast(msg, 'success');
         resetFormCallback();
       },
-      onError: (err) => {
-        showToast(err.message || 'Kesalahan Server. Silakan coba lagi.', 'error');
-      }
     });
   };
 

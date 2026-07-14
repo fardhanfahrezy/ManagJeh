@@ -1,5 +1,6 @@
 // src/contexts/AuthContext.jsx
-import { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -8,44 +9,67 @@ const AuthContext = createContext({});
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  // Hooks aman digunakan karena AuthProvider berada di dalam BrowserRouter
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const signOut = useCallback(async () => {
-    // Hanya memanggil API. Pembersihan state dan cache dikoordinasikan oleh listener di bawah.
-    await supabase.auth.signOut().catch(err => console.error('[Auth] SignOut failed:', err.message));
-  }, []);
-
   useEffect(() => {
-    // 1. SETUP LISTENER TERLEBIH DAHULU (Menghindari Race Condition dengan getSession)
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESH_FAILED') {
-        setUser(null);
-        // Single Source of Truth untuk pembersihan data finansial
-        queryClient.clear(); 
-      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        setUser(session?.user ?? null);
-      }
-    });
+    let mounted = true;
 
-    // 2. FETCH SESI AWAL
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) {
-        console.error('[Auth] Initial session fetch failed:', error.message);
+    // 1. Inisialisasi Sesi Awal
+    const initializeAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (mounted) {
+          setUser(session?.user || null);
+        }
+      } catch (error) {
+        console.error('[Auth Engine] Gagal memuat sesi:', error);
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setUser(session?.user ?? null);
-      setLoading(false); // Selesai loading, biarkan App.jsx yang mengatur UI
-    });
+    };
+
+    initializeAuth();
+
+    // 2. Pendengar Perubahan Status (Event Listener)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (!mounted) return;
+
+        setUser(session?.user || null);
+
+        // O(1) State Wipeout & Seamless Routing
+        if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
+          queryClient.clear(); // Bersihkan memori cache tanpa hard-reload
+          navigate('/login', { replace: true }); // Transisi SPA mulus
+        }
+      }
+    );
 
     return () => {
-      authListener.subscription.unsubscribe();
+      mounted = false;
+      subscription.unsubscribe(); // Mencegah memory leak saat komponen di-unmount
     };
-  }, [queryClient]);
+  }, [navigate, queryClient]);
 
-  const value = useMemo(() => ({ user, loading, signOut }), [user, loading, signOut]);
+  const signOut = async () => {
+    try {
+      // Pemanggilan ini secara otomatis akan memicu event 'SIGNED_OUT' di atas
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('[Auth Engine] Proses keluar gagal:', error);
+      // Fallback Kritis: Paksa keluar secara lokal jika server Supabase tidak merespons
+      setUser(null);
+      queryClient.clear();
+      navigate('/login', { replace: true });
+    }
+  };
 
   return (
-    <AuthContext.Provider value={value}>
-      {children}
+    <AuthContext.Provider value={{ user, loading, signOut }}>
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '../../../lib/supabase';
+import { QUERY_KEYS } from '../../../lib/queryKeys';
 
 export const useTransactionMasterData = (userId) => {
   return useQuery({
-    queryKey: ['masterData', userId],
+    queryKey: QUERY_KEYS.masterData(userId),
     enabled: !!userId,
     queryFn: async () => {
       const [acctsRes, catsRes] = await Promise.all([

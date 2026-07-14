@@ -8,6 +8,7 @@ import Auth from './pages/Auth';
 import { ToastProvider } from './contexts/ToastContext';
 import { ToastViewport } from './components/ToastViewport';
 import Layout from './components/Layout';
+import { QUERY_KEYS } from './lib/queryKeys';
 import { useSync } from './hooks/useSync';
 import { SystemOrchestrator } from './providers/SystemOrchestrator';
 import { queryClient } from './lib/queryClient';
@@ -35,7 +36,7 @@ function ProtectedRoute({ children }) {
 
   // Kueri efisien untuk mengecek apakah user sudah punya dompet
   const { data: accounts, isLoading: isCheckingSetup } = useQuery({
-    queryKey: ['hasAccounts', user?.id],
+    queryKey: QUERY_KEYS.hasAccounts(user?.id),
     enabled: !!user?.id,
     staleTime: Infinity, // Hemat jaringan, karena jika sudah punya, tidak akan hilang secara tiba-tiba
     queryFn: async () => {

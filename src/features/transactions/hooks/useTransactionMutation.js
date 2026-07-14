@@ -2,6 +2,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { transactionService } from '../services/transaction.service';
 import { useToast } from '../../../contexts/ToastContext';
+import { QUERY_KEYS } from '../../../lib/queryKeys';
 
 // Kamus Pemetaan SQLSTATE untuk Keandalan Sistem Produksi
 const POSTGRES_ERROR_MAP = {
@@ -25,8 +26,8 @@ export const useTransactionMutation = (userId) => {
         : 'Transaksi berhasil dicatat.';
       showToast(msg, 'success');
       
-      queryClient.invalidateQueries({ queryKey: ['dashboardData'] });
-      queryClient.invalidateQueries({ queryKey: ['accounts'] });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.dashboard(userId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.masterData(userId) });
     },
     onError: (err) => {
       // PERBAIKAN: Gunakan err.code (SQLSTATE) sebagai jangkar utama, fallback ke message
